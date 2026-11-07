@@ -161,7 +161,7 @@ Cloud Run with continuous deployment from this GitHub repo (Developer Connect, b
 uvicorn app:app --host 0.0.0.0 --port $PORT
 ```
 
-Settings: 1 GiB memory, 600 s request timeout, max 1 instance, unauthenticated access. Every push to `main` redeploys.
+Settings: 2 GiB memory, 600 s request timeout, max 1 instance, unauthenticated access. Every push to `main` redeploys.
 - **One instance:** sessions, pending clarifications and the context panel live in memory, so they reset when Cloud Run starts a new instance.
 - **600 s:** the Lead gets 480 s. If it runs out, the Writer gets up to 90 s to report from the evidence gathered so far.
 - **No environment variables needed:** Vertex AI uses the service's own project credentials. `.env.example` lists the optional ones.

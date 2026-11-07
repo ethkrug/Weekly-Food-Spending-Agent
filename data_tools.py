@@ -65,7 +65,7 @@ class Result:
 
 
 # --------------------------------------------------------------------------------------------
-# Loading: one read-only connection, opened lazily, shared by every request
+# Loading: one read-only database, opened lazily; a cursor per query
 # --------------------------------------------------------------------------------------------
 
 _lock = threading.Lock()
@@ -73,24 +73,48 @@ _con: duckdb.DuckDBPyConnection | None = None
 _frames: dict[str, pd.DataFrame] = {}
 
 
+# Tools run in parallel threads (the Agents SDK runs sync tools with asyncio.to_thread), and a DuckDB
+# connection refuses a second call while one is running. So: one read-only database handle, and a fresh
+# cursor (its own connection to the same database) for every query. DuckDB is also capped to the Cloud
+# Run container, since by default it sizes threads and memory to the host machine, not the container.
+DUCKDB_CONFIG = {"threads": 2, "memory_limit": "384MB"}
+
+
 def con() -> duckdb.DuckDBPyConnection:
+    """A new cursor on the shared read-only database. Use one per query; never share it across threads."""
     global _con
     with _lock:
         if _con is None:
             if not DB_PATH.exists():
                 raise RuntimeError(f"{DB_PATH} is missing: run `uv run --group build build_data.py` first.")
-            _con = duckdb.connect(str(DB_PATH), read_only=True)
-        return _con
+            _con = duckdb.connect(str(DB_PATH), read_only=True, config=DUCKDB_CONFIG)
+        return _con.cursor()
+
+
+# At most two queries at once: each takes well under a second, and running eight together (five parallel
+# Researchers) pushed memory near the container's limit.
+_query_slots = threading.BoundedSemaphore(2)
+
+
+def query(sql: str, params: list | None = None) -> pd.DataFrame:
+    with _query_slots:
+        cur = con()
+        try:
+            return cur.execute(sql, params or []).df()
+        finally:
+            cur.close()
+
+
+_frame_locks: dict[str, threading.Lock] = {}
 
 
 def frame(table: str) -> pd.DataFrame:
+    """A whole (small) table as a cached DataFrame, loaded once even if several threads ask at once."""
     with _lock:
+        lock = _frame_locks.setdefault(table, threading.Lock())
+    with lock:
         if table not in _frames:
-            pass
-    if table not in _frames:
-        df = con().execute(f"SELECT * FROM {table}").df()  # table names are constants in this module
-        with _lock:
-            _frames[table] = df
+            _frames[table] = query(f"SELECT * FROM {table}")  # table names are constants in this module
     return _frames[table]
 
 
@@ -207,7 +231,7 @@ def ce_spending(measure: str, start_year: int, end_year: int, split_by: str, geo
         JOIN ce_hh h ON h.NEWID = d.NEWID AND h.year = d.year
         WHERE d.year BETWEEN ? AND ? AND d.weekday BETWEEN 2 AND 6 AND {geo}
         GROUP BY grp, d.weekday ORDER BY grp, d.weekday"""
-    df = con().execute(sql, [y0, y1]).df()
+    df = query(sql, [y0, y1])
     min_n = MIN_N_LOCAL if geography == "ny_metro" or split_by == "ny_metro" else MIN_N
     blocks = []
     for grp, g in df.groupby("grp"):
