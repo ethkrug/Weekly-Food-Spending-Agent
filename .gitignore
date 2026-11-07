@@ -1,0 +1,17 @@
+# Virtual environment. uv recreates it from pyproject.toml + uv.lock.
+.venv/
+
+# Python bytecode
+__pycache__/
+*.py[cod]
+.pytest_cache/
+
+# Local secrets. Commit .env.example instead, never .env.
+.env
+
+# Offline build: commit the finished database (Cloud Run builds from this repo), not the intermediates.
+data/cache/
+data/*.building
+
+# macOS
+.DS_Store

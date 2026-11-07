@@ -1,0 +1,307 @@
+<!doctype html>
+<html lang="en">
+    <head>
+        <meta charset="UTF-8" />
+        <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+        <title>Food Week</title>
+        <script src="https://cdn.jsdelivr.net/npm/marked@12.0.2/marked.min.js"></script>
+        <script src="https://cdn.jsdelivr.net/npm/dompurify@3.1.6/dist/purify.min.js"></script>
+        <style>
+            * { box-sizing: border-box; margin: 0; padding: 0; }
+            body { font-family: system-ui, sans-serif; padding: 2rem; color: #111; line-height: 1.5; }
+            main { max-width: 780px; margin: 0 auto; display: flex; flex-direction: column; gap: 1.25rem; }
+            section { border: 1px solid #e0e0e0; padding: 1.25rem 1.5rem; }
+            h1 { font-size: 1.5rem; font-weight: 700; }
+            .lede { color: #444; margin-top: 0.4rem; }
+            h2.label {
+                font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.05em; color: #999;
+                font-weight: 400; margin-bottom: 0.75rem; display: flex; justify-content: space-between; align-items: baseline;
+            }
+            .about { display: grid; grid-template-columns: repeat(3, 1fr); gap: 1rem; font-size: 0.9rem; }
+            .about h3 { font-size: 0.8rem; margin-bottom: 0.25rem; }
+            .about p { color: #444; }
+            details.data { font-size: 0.85rem; color: #444; margin-top: 1rem; }
+            details.data summary { cursor: pointer; color: #111; }
+            details.data ul { margin: 0.5rem 0 0 1.2rem; }
+            #question {
+                width: 100%; padding: 0.6rem 0; border: none; border-bottom: 1px solid #e0e0e0;
+                font-size: 1rem; outline: none; font-family: inherit;
+            }
+            #question:focus { border-bottom-color: #000; }
+            .examples { display: flex; flex-wrap: wrap; gap: 0.5rem; margin-top: 0.9rem; }
+            .chip {
+                border: 1px solid #ddd; background: #fff; color: #111; padding: 0.35rem 0.7rem; font-size: 0.8rem;
+                cursor: pointer; text-transform: none; letter-spacing: 0; border-radius: 999px;
+            }
+            .chip:hover { border-color: #111; }
+            #run {
+                margin-top: 1rem; padding: 0.75rem 1.5rem; background: #000; color: #fff; border: none;
+                font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.05em; cursor: pointer;
+            }
+            #run:disabled { opacity: 0.3; }
+            #clarify { display: none; background: #fffbea; border-color: #f0d264; }
+            #clarify p { margin-bottom: 0.75rem; }
+            #activity { list-style: none; font-size: 0.85rem; line-height: 1.7; }
+            #activity .agent { font-weight: 600; }
+            #activity .error { color: #dc2626; }
+            #status { color: #999; text-transform: none; letter-spacing: 0; }
+            #report { font-size: 0.95rem; }
+            #report h2 { font-size: 1.1rem; margin: 1.4rem 0 0.5rem; }
+            #report h3 { font-size: 1rem; margin: 1rem 0 0.4rem; }
+            #report p, #report ul, #report ol, #report table, #report blockquote { margin-bottom: 0.8rem; }
+            #report ul, #report ol { padding-left: 1.3rem; }
+            #report table { border-collapse: collapse; width: 100%; font-size: 0.85rem; display: block; overflow-x: auto; }
+            #report th, #report td { border: 1px solid #e0e0e0; padding: 0.35rem 0.5rem; text-align: left; vertical-align: top; }
+            #report th { background: #f6f6f6; }
+            #report blockquote { border-left: 3px solid #f0d264; padding-left: 0.75rem; color: #555; }
+            #report .cite { font-size: 0.75em; color: #2563eb; text-decoration: none; white-space: nowrap; }
+            #report li:target { background: #eef4ff; }
+            details.calls summary { cursor: pointer; font-size: 0.85rem; }
+            .call { font-family: ui-monospace, monospace; font-size: 0.75rem; border-top: 1px solid #eee; padding: 0.5rem 0; }
+            .call b { font-family: system-ui, sans-serif; }
+            .call pre { white-space: pre-wrap; word-break: break-word; color: #555; max-height: 12rem; overflow: auto; margin-top: 0.3rem; }
+            .empty { color: #999; }
+            @media (max-width: 900px) {
+                body { padding: 1rem; margin-right: 0 !important; }
+                #context-panel { display: none; }
+                .about { grid-template-columns: 1fr; }
+            }
+        </style>
+    </head>
+    <body>
+        <main>
+            <header>
+                <h1>Food Week</h1>
+                <p class="lede">
+                    When during the work week do Americans spend money on food, and why? Ask a question and a team of AI
+                    agents digs through five US datasets (federal spending diaries, food surveys, time-use diaries and NYC
+                    subway data) to answer it with cited numbers.
+                </p>
+            </header>
+
+            <section>
+                <div class="about">
+                    <div>
+                        <h3>What it explores</h3>
+                        <p>Which weekdays people spend the most on groceries and eating out, who differs (workers, retirees,
+                            New Yorkers), and whether hybrid work, end-of-week habits or paydays explain it.</p>
+                    </div>
+                    <div>
+                        <h3>Who it's for</h3>
+                        <p>Café and restaurant owners planning staff and promotions, reporters covering hybrid work, and anyone
+                            curious about everyday spending habits.</p>
+                    </div>
+                    <div>
+                        <h3>How to use it</h3>
+                        <p>Ask about Monday-Friday food spending or eating. A lead agent plans, researchers query the data in
+                            parallel, and a writer reports. It takes 1-3 minutes. Vague questions get a follow-up question.</p>
+                    </div>
+                </div>
+                <details class="data">
+                    <summary>The data, and its limits</summary>
+                    <ul>
+                        <li><b>BLS Consumer Expenditure Diary</b>, 2015-2025: household food dollars by weekday, with the New York metro area.</li>
+                        <li><b>Atlanta Fed Diary of Consumer Payment Choice</b>, 2021-2025 (October): individual food dollars by day, by employment.</li>
+                        <li><b>CDC NHANES</b>, 2017-2023: where people's food came from (restaurant vs store) by weekday.</li>
+                        <li><b>BLS American Time Use Survey</b>, 2015-2025: food activities by weekday and by where people worked that day.</li>
+                        <li><b>MTA subway ridership</b>, 2017-now (live): the shape of the NYC office week.</li>
+                    </ul>
+                    <p style="margin-top: 0.5rem">It covers Monday-Friday only, can't see individual people's whole weeks, and can't prove
+                        why patterns happen. The report says when the data can't answer something.</p>
+                </details>
+            </section>
+
+            <section>
+                <h2 class="label">Ask</h2>
+                <form id="task">
+                    <input id="question" placeholder="e.g. Which weekday do Americans spend the most eating out, and why?" autocomplete="off" />
+                    <div class="examples" id="examples"></div>
+                    <button id="run" type="submit">Research</button>
+                </form>
+            </section>
+
+            <section id="clarify">
+                <h2 class="label">The lead researcher needs a detail</h2>
+                <p id="clarify-question"></p>
+                <div class="examples" id="clarify-options"></div>
+                <p class="empty" style="margin-top: 0.75rem; font-size: 0.8rem">Pick one or type your own answer above, then press Research.</p>
+            </section>
+
+            <section>
+                <h2 class="label">Activity <span id="status"></span></h2>
+                <ol id="activity"><li class="empty">Each agent's steps appear here. The panel on the right shows exactly what each agent sees.</li></ol>
+            </section>
+
+            <section>
+                <h2 class="label">Report</h2>
+                <div id="report" class="empty">The cited report appears here.</div>
+            </section>
+
+            <section>
+                <details class="calls">
+                    <summary id="calls-summary">Tool calls (0)</summary>
+                    <div id="calls"></div>
+                </details>
+            </section>
+        </main>
+
+        <script src="/context-panel.js"></script>
+        <script>
+            const $ = (id) => document.getElementById(id);
+            const EXAMPLES = [
+                "Which weekday do Americans spend the most on eating out, and why?",
+                "Do people who work from home buy groceries on different days than office workers?",
+                "Is the Friday food-spending spike just a payday effect, or do retirees show it too?",
+                "Does the New York area follow the same weekday food pattern as the rest of the country?",
+            ];
+            let source = null;
+            let runId = null;
+            let sessionId = null;
+            let awaitingClarification = false;
+
+            for (const q of EXAMPLES) {
+                const b = document.createElement("button");
+                b.type = "button";
+                b.className = "chip";
+                b.textContent = q;
+                b.onclick = () => { $("question").value = q; awaitingClarification = false; $("clarify").style.display = "none"; };
+                $("examples").appendChild(b);
+            }
+
+            function addActivity(agent, text, cls = "") {
+                const li = document.createElement("li");
+                li.className = cls;
+                if (agent) {
+                    const name = document.createElement("span");
+                    name.className = "agent";
+                    name.textContent = agent + " ";
+                    li.appendChild(name);
+                }
+                li.append(text);
+                $("activity").appendChild(li);
+            }
+
+            function renderReport(markdown) {
+                const html = DOMPurify.sanitize(marked.parse(markdown));
+                $("report").className = "";
+                $("report").innerHTML = html;
+                // Turn [E3] / [E3, E7] into links to the Sources list.
+                for (const li of $("report").querySelectorAll("li")) {
+                    const m = li.textContent.match(/^\[(E\d+)\]/);
+                    if (m) li.id = "src-" + m[1];
+                }
+                const walker = document.createTreeWalker($("report"), NodeFilter.SHOW_TEXT);
+                const nodes = [];
+                while (walker.nextNode()) if (/\[E\d+(\s*,\s*E\d+)*\]/.test(walker.currentNode.nodeValue)) nodes.push(walker.currentNode);
+                for (const node of nodes) {
+                    if (node.parentElement.closest("li[id^=src-]")) continue;
+                    const frag = document.createDocumentFragment();
+                    const parts = node.nodeValue.split(/(\[E\d+(?:\s*,\s*E\d+)*\])/);
+                    for (const part of parts) {
+                        const m = part.match(/^\[(.*)\]$/);
+                        if (!m) { frag.append(part); continue; }
+                        const ids = m[1].split(",").map((s) => s.trim());
+                        const sup = document.createElement("span");
+                        sup.className = "cite";
+                        sup.append("[");
+                        ids.forEach((id, i) => {
+                            const a = document.createElement("a");
+                            a.href = "#src-" + id;
+                            a.textContent = id;
+                            a.className = "cite";
+                            sup.append(a);
+                            if (i < ids.length - 1) sup.append(", ");
+                        });
+                        sup.append("]");
+                        frag.append(sup);
+                    }
+                    node.replaceWith(frag);
+                }
+            }
+
+            function renderCalls(calls) {
+                $("calls").replaceChildren();
+                $("calls-summary").textContent = `Tool calls (${calls.length})`;
+                for (const c of calls) {
+                    const div = document.createElement("div");
+                    div.className = "call";
+                    const head = document.createElement("div");
+                    const b = document.createElement("b");
+                    b.textContent = c.agent;
+                    head.append(b, ` → ${c.name}(${JSON.stringify(c.args)})`);
+                    const pre = document.createElement("pre");
+                    pre.textContent = c.result;
+                    div.append(head, pre);
+                    $("calls").appendChild(div);
+                }
+            }
+
+            function showClarification(question, suggestions) {
+                $("clarify").style.display = "block";
+                $("clarify-question").textContent = question;
+                $("clarify-options").replaceChildren();
+                for (const s of suggestions) {
+                    const b = document.createElement("button");
+                    b.type = "button";
+                    b.className = "chip";
+                    b.textContent = s;
+                    b.onclick = () => { $("question").value = s; };
+                    $("clarify-options").appendChild(b);
+                }
+            }
+
+            function finish(message) {
+                $("status").textContent = message;
+                $("run").disabled = false;
+                if (source) source.close();
+            }
+
+            $("task").addEventListener("submit", (e) => {
+                e.preventDefault();
+                const question = $("question").value.trim();
+                if (!question) return;
+                if (source) source.close();
+                const params = new URLSearchParams({ question });
+                // A reply to a clarifying question goes to the same session, which remembers the original question.
+                if (awaitingClarification && sessionId) params.set("session_id", sessionId);
+
+                $("clarify").style.display = "none";
+                $("activity").replaceChildren();
+                $("report").className = "empty";
+                $("report").textContent = "The cited report appears here.";
+                renderCalls([]);
+                $("status").textContent = "running";
+                $("run").disabled = true;
+                resetContext();
+
+                source = new EventSource("/run?" + params);
+                source.onmessage = (msg) => {
+                    const event = JSON.parse(msg.data);
+                    if (event.type === "start") { runId = event.run_id; sessionId = event.session_id; }
+                    else if (event.type === "context") showContext(runId);
+                    else if (event.type === "activity") addActivity(event.agent, event.text);
+                    else if (event.type === "done") {
+                        renderCalls(event.tool_calls || []);
+                        if (event.kind === "clarify") {
+                            awaitingClarification = true;
+                            showClarification(event.markdown.split("\n\n")[0], event.suggestions || []);
+                            $("report").textContent = "Waiting for your clarification.";
+                            finish("needs a detail");
+                        } else {
+                            awaitingClarification = false;
+                            renderReport(event.markdown);
+                            finish(`done: ${event.rounds} research round(s), ${event.researchers} researcher(s)`);
+                        }
+                    } else if (event.type === "error") {
+                        addActivity("", event.message, "error");
+                        finish("failed");
+                    }
+                };
+                source.onerror = () => {
+                    addActivity("", "Lost the connection to the server.", "error");
+                    finish("failed");
+                };
+            });
+        </script>
+    </body>
+</html>
