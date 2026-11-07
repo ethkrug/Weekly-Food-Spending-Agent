@@ -161,9 +161,9 @@ Cloud Run with continuous deployment from this GitHub repo (Developer Connect, b
 uvicorn app:app --host 0.0.0.0 --port $PORT
 ```
 
-Settings: 1 GiB memory, 480 s request timeout, max 1 instance, unauthenticated access. Every push to `main` redeploys.
+Settings: 1 GiB memory, 600 s request timeout, max 1 instance, unauthenticated access. Every push to `main` redeploys.
 - **One instance:** sessions, pending clarifications and the context panel live in memory, so they reset when Cloud Run starts a new instance.
-- **480 s:** the Lead gets 360 s. If it runs out, the Writer gets up to 90 s to report from the evidence gathered so far.
+- **600 s:** the Lead gets 480 s. If it runs out, the Writer gets up to 90 s to report from the evidence gathered so far.
 - **No environment variables needed:** Vertex AI uses the service's own project credentials. `.env.example` lists the optional ones.
 
 `data/food_week.duckdb` (38 MB) is committed because the build uses only what's in the repo. The raw survey files are not; `build_data.py` rebuilds the database from them (see "The data").

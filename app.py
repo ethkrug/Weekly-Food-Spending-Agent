@@ -59,9 +59,9 @@ MAX_RESEARCHERS = 8  # in all, across rounds
 MAX_PER_ROUND = 5
 MAX_DATA_CALLS = 6  # per Researcher
 MAX_MTA_CALLS = 6  # per run: the only tool that reaches the internet
-# Cloud Run cuts a request at 480 s. The Lead gets 360 s; if it runs out, the Writer gets up to 90 s
+# Cloud Run cuts a request at 600 s. The Lead gets 480 s; if it runs out, the Writer gets up to 90 s
 # to report from whatever evidence exists, so the user still gets an answer inside the limit.
-RUN_TIMEOUT = 360
+RUN_TIMEOUT = 480
 WRITER_TIMEOUT = 90
 
 
