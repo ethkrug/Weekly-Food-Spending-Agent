@@ -218,6 +218,10 @@ def ce_spending(measure: str, start_year: int, end_year: int, split_by: str, geo
         caveats.append("Food away from home was recoded in 2022; eating-out totals are comparable, meal detail is not.")
     if y0 <= 2020 <= y1:
         caveats.append("Includes 2020 (pandemic).")
+    if y0 < 2022 and y1 - y0 >= 3:
+        caveats.append("Dollars are not adjusted for inflation, so a multi-year average understates today's "
+                       "prices (CE eating out per household per day rose from $7.06 in 2015 to $9.65 in 2025, "
+                       "all days). For current levels query 2022-2025.")
 
     expr = CE_MEASURES[measure]
     group = CE_SPLITS[split_by]

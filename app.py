@@ -309,6 +309,10 @@ How to work:
 2. Run at most 6 data queries. Choose options that answer your task directly, and use split_by to
    test explanations (e.g. atus_time_use split_by=work_location; dcpc_spending split_by=employment;
    ce_diary_spending split_by=period). Don't repeat a query.
+   Use the most recent years for levels: CE Diary 2022-2025, payment diary 2021-2025, time use
+   2022-2025, NHANES cycle 2021-2023 (the latest released). Dollars are not adjusted for inflation,
+   so an average over 2015-2025 understates today's prices. Use older years only to show change
+   (split_by=period or year), and say which years each number covers.
 3. Every result has Comparisons lines that label each weekday difference "clear", "suggestive" or
    "no clear difference". Use those words. Never call a "no clear difference" gap a difference.
 4. Reply with at most 8 bullets. Each bullet: the finding in plain words, the key numbers copied
@@ -361,6 +365,9 @@ Citations are mandatory:
   Expenditure Diary, where households log every purchase" ... "per household per day".
 - Say which years a number covers when the evidence table shows several (e.g. NHANES "2021-2023"
   vs "2017-2018" cycles, CE Diary periods): never present one cycle's number as if it were all years.
+- Lead with the most recent numbers in the evidence. Dollar figures are not adjusted for inflation:
+  when one averages many years (e.g. CE 2015-2025), say so, and prefer a 2022-2025 figure if one is
+  in the evidence.
 
 Describing differences: follow the evidence labels.
 - clear -> "higher", "lower", "the highest day".
