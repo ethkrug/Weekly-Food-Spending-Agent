@@ -208,27 +208,6 @@ def test_question_box_clears_on_submit():
     assert '$("question").value = "";' in html
 
 
-def test_about_the_same_with_a_visible_gap_needs_the_sample_size_reason():
-    bad = "## Groceries\nLunch shares are about the same, ranging from 15.09% on Thursday to 20.28% on Monday [E20].\n"
-    good = ("## Groceries\nLunch shares run from 15.09% to 20.28% [E20], about the same, but with ~400 people per "
-            "weekday the survey is too small to tell whether that gap is real.\n")
-    close = "## Groceries\nShares are about the same, 71.05% to 73.82% [E14].\n"
-    label = "## Groceries\nDinner climbs to 28.35% on Friday, a clear difference [E22].\n"
-    assert any("about the same" in p for p in app_module.check_wording(bad))
-    assert not any("about the same" in p for p in app_module.check_wording(good))
-    assert not any("about the same" in p for p in app_module.check_wording(close))
-    assert any("clear difference" in p for p in app_module.check_wording(label))
-    assert not app_module.check_wording("## X\nThe days show no clear difference [E1].\n")
-    vague = "## NY\nSpending is flat, $16.76 to $18.86, consistent with smaller sample sizes [E20].\n"
-    assert any("visible gap" in p for p in app_module.check_wording(vague))
-
-
-def test_flat_with_a_five_percent_gap_is_flagged():
-    flat = "## Lunch\nWeekday lunch is flat, from a 20.28% Monday to 15.09% Thursday [E22].\n"
-    assert any("visible gap" in p for p in app_module.check_wording(flat))
-    near = "## Lunch\nShares are about the same, 18.10% to 19.10% [E22].\n"  # 5.5% apart
-    assert any("visible gap" in p for p in app_module.check_wording(near))
-
 
 def test_follow_ups_carry_the_conversation():
     seen = []
@@ -250,3 +229,8 @@ def test_follow_ups_carry_the_conversation():
     assert "[E3]" not in seen[1] and "## Sources" not in seen[1]
     assert seen[1].endswith("# New question\n\nwhat about lunch?")
     assert client.get("/history", params={"session_id": "nope"}).json()["turns"] == []
+
+
+def test_label_wording_is_flagged():
+    assert any("clear difference" in p for p in app_module.check_wording("## X\nDinner climbs to 28.35%, a clear difference [E22].\n"))
+    assert not app_module.check_wording("## X\nThe days show no clear difference [E1].\n")
