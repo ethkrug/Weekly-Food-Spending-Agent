@@ -403,20 +403,25 @@ Write markdown with these sections:
    or the October-only payment diary).
    Different Monday-Thursday shapes are usually not a disagreement. The CE Diary has ~46,000
    households per weekday and can see gaps of a few percent; NHANES has ~400-1,500 people per weekday
-   and its Monday-Thursday labels are usually "no clear difference". Say the smaller survey is too
-   small to see gaps that size; don't force one shape onto both. Only when two sources each show a
+   and its Monday-Thursday labels are usually "no clear difference". Don't force one shape onto both.
+   When a survey's days are "no clear difference" but the numbers spread by a few points (e.g. 16.97%
+   vs 19.10%), don't call the gap minor. Say plainly that a gap that size could matter, but this survey
+   has too few people per weekday to tell whether it is real or chance; the survey's size is the
+   limit, not the gap. The same goes for small subsamples (e.g. the New York metro area). Only when two sources each show a
    clear but different shape, explain it by what each measures: dollars a household spends (a bigger
    check, takeout for the family) vs whether one person ate restaurant food vs minutes.
 3. One "##" section per part of the question (for example "Groceries vs eating out", "Who differs",
    "New York City"). A small markdown table of weekday numbers helps when comparing days.
-4. "## What explains it?": a table with one row per explanation the evidence touches (office days /
-   hybrid work, an end-of-week habit, payday timing, a Monday restock, others the findings raise):
-   | Explanation | Verdict | Evidence |, with Verdict one of Supported, Mixed, Not supported,
-   Can't tell from this data, Not tested, and one line of cited evidence. Use "Can't tell from this
-   data" only when no dataset here can measure it (e.g. paydays). If a dataset could test it but no
-   researcher did (e.g. a Monday restock needs grocery dollars by weekday), write "Not tested" and say
-   which data would test it. Never claim a dataset lacks something it has.
-5. "## What the data can't tell us": the specific limits that matter for this question.
+4. "## What explains it?": a table with one row per explanation that a researcher actually tested
+   with data AND that bears on this question (for a grocery question, grocery explanations; for eating
+   out, eating-out ones): | Explanation | Verdict | Evidence |, with Verdict one of Supported, Mixed,
+   Not supported, and one line of cited evidence. Supported needs clear evidence that way and nothing
+   clear against it; evidence that is only suggestive, or sources that point different ways, is Mixed.
+   Leave out explanations nobody tested, and don't add rows for things no dataset can measure (e.g.
+   actual paydays, each person's work location): those belong in the next section, not the table.
+   Never claim a dataset lacks something it has.
+5. "## What the data can't tell us": the specific limits that matter for this question, including
+   explanations no dataset here can test.
 
 Citations are mandatory:
 - Every sentence (and table row) with a number or a factual finding ends with its evidence ID(s) in
@@ -435,7 +440,10 @@ Describing differences: follow the evidence labels.
 - clear -> "higher", "lower", "the highest day". The labels are for you, not the reader: never write
   "clear higher" or "a clear difference"; just say "higher".
 - suggestive -> "leans higher", "somewhat lower", "a hint that".
-- no clear difference -> "about the same". Never call it a difference.
+- no clear difference -> "about the same" when the numbers are close. When they spread visibly (e.g.
+  15.09% vs 20.28%), name both and say in the same sentence that the survey is too small to tell
+  whether a gap that size is real (give how many people or households per weekday if the evidence
+  shows it). Never call it a difference, and never imply the gap is too small to matter.
 - Peaks and lows: call a day "the peak", "the low" or "a midweek peak" only when its "vs other
   weekdays" line is clear (or say it "leans" highest/lowest when suggestive). Being the biggest number
   is not enough: in a small sample, the top Monday-Thursday day is often "no clear difference".
@@ -706,6 +714,22 @@ CAUSAL = re.compile(r"\b(causes?|caused by|causing|drives|driven by|driving|beca
                     r"reflect(?:s|ing)?|result(?:s|ing)? from|thanks to)\b", re.I)
 
 
+LABEL_WORDING = re.compile(r"\bclear(?:ly)? (?:higher|lower)\b|(?<!no )\bclear difference\b", re.I)
+SAME = re.compile(r"\babout the same\b", re.I)
+SAMPLE_WORDS = re.compile(r"too (?:small|few)|sample|per weekday|can'?t tell|cannot tell", re.I)
+SPREAD_NUMBER = re.compile(r"(\$)?(\d+(?:\.\d+)?)(%)?")
+
+
+def visible_spread(sentence: str) -> bool:
+    """True when two dollar or two percent figures in the sentence differ by 10% or more."""
+    groups: dict[str, list[float]] = {"$": [], "%": []}
+    for m in SPREAD_NUMBER.finditer(re.sub(r"\[E[\d, E]+\]", "", sentence)):
+        unit = "$" if m.group(1) else "%" if m.group(3) else None
+        if unit:
+            groups[unit].append(float(m.group(2)))
+    return any(len(v) >= 2 and min(v) > 0 and max(v) / min(v) >= 1.10 for v in groups.values())
+
+
 MAX_WORDS = 1100  # the prompt asks for 500-900; tables add words, so only flag clear overruns
 RAW_LABEL = re.compile(r"\b(age_65_plus|65_plus|under_35|35_54|55_64|no_earners|has_earners|ny_metro|ny_state|"
                        r"employed_20_64|not_employed_20_64|adults_20_64|children_2_19|rest_of_us|full_time|part_time|"
@@ -726,10 +750,33 @@ def check_wording(report: str) -> list[str]:
     for line in body.splitlines():
         if line.startswith("#"):
             continue
+        for m in LABEL_WORDING.finditer(line):
+            problems.append(f'"{m.group(0)}" in "{line.strip()[:100]}": say "higher"/"lower", or "about the same" '
+                            f'for no clear difference.')
+        for sentence in re.split(r"(?<=[.!?])\s+", line):
+            if (not line.lstrip().startswith("|") and SAME.search(sentence) and not SAMPLE_WORDS.search(sentence)
+                    and visible_spread(sentence)):
+                problems.append(f'"{sentence.strip()[:120]}" calls days with a visible gap "about the same": say the '
+                                f'survey is too small to tell whether a gap that size is real.')
         for m in CAUSAL.finditer(line):
             problems.append(f'Causal wording "{m.group(0)}" in "{line.strip()[:100]}": use "consistent with", '
                             f'"fits", "doesn\'t fit" or "points toward" instead.')
     return problems
+
+
+UNTESTED_VERDICT = re.compile(r"^\s*\|[^|\n]*\|\s*\**\s*(not tested|can'?t tell|cannot tell)", re.I)
+
+
+def drop_untested_rows(report: str) -> str:
+    """Remove "What explains it?" rows with no tested verdict: the table lists only what the data tested."""
+    out, in_table = [], False
+    for line in report.splitlines():
+        if line.startswith("## "):
+            in_table = line.lower().startswith("## what explains it")
+        if in_table and UNTESTED_VERDICT.match(line.replace("\u2019", "'")):
+            continue
+        out.append(line)
+    return "\n".join(out)
 
 
 def evidence_for_writer(run: Research) -> str:
@@ -757,6 +804,7 @@ async def write_and_check(run: Research, brief: str) -> str:
                                   context=run, hooks=run.hooks, max_turns=2)
         report = str(result.final_output)
         problems = check_citations(report, run.evidence) + check_extremes(report, run.evidence)
+    report = drop_untested_rows(report)
     return report + sources_section(report, run) + (
         "\n\n> **Citation check:** " + str(len(problems)) + " number(s) couldn't be matched to the cited evidence: "
         + "; ".join(problems[:5]) if problems else "")

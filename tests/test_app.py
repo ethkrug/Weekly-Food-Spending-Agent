@@ -183,3 +183,38 @@ def test_clarification_carries_the_original_question():
 def test_index_explains_the_tool():
     r = TestClient(app_module.app).get("/")
     assert "What it explores" in r.text and "Who it's for" in r.text and "How to use it" in r.text
+
+
+def test_explains_table_keeps_only_tested_rows():
+    report = (
+        "## What explains it?\n"
+        "| Explanation | Verdict | Evidence |\n|---|---|---|\n"
+        "| Payday timing | Mixed | $12.32 vs $10.41 [E2] |\n"
+        "| Verified paydays | Can't tell from this data | No payroll records [E1] |\n"
+        "| Monday restock | **Not tested** | CE groceries by weekday would test it |\n"
+        "| Work location | Can’t tell | None link it [E27] |\n"
+        "\n## What the data can't tell us\n"
+        "| Thing | Can't tell | kept outside the table |\n"
+    )
+    out = app_module.drop_untested_rows(report)
+    assert "Payday timing" in out
+    assert "Verified paydays" not in out and "Monday restock" not in out and "Work location" not in out
+    assert "kept outside the table" in out
+
+
+def test_question_box_clears_on_submit():
+    html = (Path(app_module.__file__).parent / "index.html").read_text()
+    assert '$("question").value = "";' in html
+
+
+def test_about_the_same_with_a_visible_gap_needs_the_sample_size_reason():
+    bad = "## Groceries\nLunch shares are about the same, ranging from 15.09% on Thursday to 20.28% on Monday [E20].\n"
+    good = ("## Groceries\nLunch shares run from 15.09% to 20.28% [E20], about the same, but with ~400 people per "
+            "weekday the survey is too small to tell whether that gap is real.\n")
+    close = "## Groceries\nShares are about the same, 71.05% to 73.82% [E14].\n"
+    label = "## Groceries\nDinner climbs to 28.35% on Friday, a clear difference [E22].\n"
+    assert any("about the same" in p for p in app_module.check_wording(bad))
+    assert not any("about the same" in p for p in app_module.check_wording(good))
+    assert not any("about the same" in p for p in app_module.check_wording(close))
+    assert any("clear difference" in p for p in app_module.check_wording(label))
+    assert not app_module.check_wording("## X\nThe days show no clear difference [E1].\n")

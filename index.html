@@ -409,6 +409,7 @@
                 // A reply to a clarifying question goes to the same session, which remembers the original question.
                 if (awaitingClarification && sessionId) params.set("session_id", sessionId);
 
+                $("question").value = "";
                 $("clarify").style.display = "none";
                 $("results").classList.add("on");
                 $("agents").replaceChildren();
