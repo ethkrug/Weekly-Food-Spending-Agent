@@ -218,3 +218,10 @@ def test_about_the_same_with_a_visible_gap_needs_the_sample_size_reason():
     assert not any("about the same" in p for p in app_module.check_wording(close))
     assert any("clear difference" in p for p in app_module.check_wording(label))
     assert not app_module.check_wording("## X\nThe days show no clear difference [E1].\n")
+
+
+def test_flat_with_a_five_percent_gap_is_flagged():
+    flat = "## Lunch\nWeekday lunch is flat, from a 20.28% Monday to 15.09% Thursday [E22].\n"
+    assert any("visible gap" in p for p in app_module.check_wording(flat))
+    near = "## Lunch\nShares are about the same, 18.10% to 19.10% [E22].\n"  # 5.5% apart
+    assert any("visible gap" in p for p in app_module.check_wording(near))

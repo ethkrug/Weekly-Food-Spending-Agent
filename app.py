@@ -440,8 +440,9 @@ Describing differences: follow the evidence labels.
 - clear -> "higher", "lower", "the highest day". The labels are for you, not the reader: never write
   "clear higher" or "a clear difference"; just say "higher".
 - suggestive -> "leans higher", "somewhat lower", "a hint that".
-- no clear difference -> "about the same" when the numbers are close. When they spread visibly (e.g.
-  15.09% vs 20.28%), name both and say in the same sentence that the survey is too small to tell
+- no clear difference -> "about the same" only when the numbers are within 5% of each other. When they
+  spread more (e.g. 17.0% vs 19.1%, or 15.09% vs 20.28%), don't call them "about the same", "flat",
+  "steady" or "similar": name both and say in the same sentence that the survey is too small to tell
   whether a gap that size is real (give how many people or households per weekday if the evidence
   shows it). Never call it a difference, and never imply the gap is too small to matter.
 - Peaks and lows: call a day "the peak", "the low" or "a midweek peak" only when its "vs other
@@ -715,19 +716,19 @@ CAUSAL = re.compile(r"\b(causes?|caused by|causing|drives|driven by|driving|beca
 
 
 LABEL_WORDING = re.compile(r"\bclear(?:ly)? (?:higher|lower)\b|(?<!no )\bclear difference\b", re.I)
-SAME = re.compile(r"\babout the same\b", re.I)
+SAME = re.compile(r"\b(?:about the same|flat|steady|stable|similar|tightly|barely (?:change|move)s?)\b", re.I)
 SAMPLE_WORDS = re.compile(r"too (?:small|few)|sample|per weekday|can'?t tell|cannot tell", re.I)
 SPREAD_NUMBER = re.compile(r"(\$)?(\d+(?:\.\d+)?)(%)?")
 
 
 def visible_spread(sentence: str) -> bool:
-    """True when two dollar or two percent figures in the sentence differ by 10% or more."""
+    """True when two dollar or two percent figures in the sentence differ by 5% or more."""
     groups: dict[str, list[float]] = {"$": [], "%": []}
     for m in SPREAD_NUMBER.finditer(re.sub(r"\[E[\d, E]+\]", "", sentence)):
         unit = "$" if m.group(1) else "%" if m.group(3) else None
         if unit:
             groups[unit].append(float(m.group(2)))
-    return any(len(v) >= 2 and min(v) > 0 and max(v) / min(v) >= 1.10 for v in groups.values())
+    return any(len(v) >= 2 and min(v) > 0 and max(v) / min(v) >= 1.05 for v in groups.values())
 
 
 MAX_WORDS = 1100  # the prompt asks for 500-900; tables add words, so only flag clear overruns
@@ -756,8 +757,8 @@ def check_wording(report: str) -> list[str]:
         for sentence in re.split(r"(?<=[.!?])\s+", line):
             if (not line.lstrip().startswith("|") and SAME.search(sentence) and not SAMPLE_WORDS.search(sentence)
                     and visible_spread(sentence)):
-                problems.append(f'"{sentence.strip()[:120]}" calls days with a visible gap "about the same": say the '
-                                f'survey is too small to tell whether a gap that size is real.')
+                problems.append(f'"{sentence.strip()[:120]}" calls days with a visible gap "{SAME.search(sentence).group(0)}": '
+                                f'say the survey is too small to tell whether a gap that size is real.')
         for m in CAUSAL.finditer(line):
             problems.append(f'Causal wording "{m.group(0)}" in "{line.strip()[:100]}": use "consistent with", '
                             f'"fits", "doesn\'t fit" or "points toward" instead.')
