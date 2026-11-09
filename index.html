@@ -207,7 +207,7 @@
             ];
             const SOURCE_NAMES = { ce_diary: "Spending diary", dcpc: "Payment diary", nhanes: "NHANES", atus: "Time use", mta: "Subway", reference: "Office reports" };
             const SOURCE_COLOR = { ce_diary: "var(--ce)", dcpc: "var(--dcpc)", nhanes: "var(--nhanes)", atus: "var(--atus)", mta: "var(--mta)", reference: "var(--reference)" };
-            const TOOL_SOURCE = { ce_diary_spending: "ce_diary", dcpc_spending: "dcpc", nhanes_eating: "nhanes", atus_time_use: "atus", mta_subway_ridership: "mta", reference_note: "reference" };
+            const TOOL_SOURCE = { ce_diary_spending: "ce_diary", dcpc_spending: "dcpc", dcpc_payday_window: "dcpc", nhanes_eating: "nhanes", atus_time_use: "atus", atus_payday_window: "atus", mta_subway_ridership: "mta", reference_note: "reference" };
             const toolColor = (name) => SOURCE_COLOR[TOOL_SOURCE[name]] || "var(--neutral)";
 
             let source = null, runId = null, sessionId = null, awaitingClarification = false;

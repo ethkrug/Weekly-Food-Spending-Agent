@@ -40,6 +40,19 @@ def test_thin_cells_are_suppressed():
     assert "too thin to report" in r.text
 
 
+def test_payday_window_compares_within_weekday():
+    r = dt.payday_window("atus", "eat_restaurant", "share", 2015, 2025)
+    assert "1st-3rd" in r.text and "15th-17th" in r.text and "other days" in r.text
+    assert "Nobody's actual payday is recorded" in r.text
+    with pytest.raises(dt.ToolInputError):
+        dt.payday_window("ce_diary", "eating_out", "share", 2015, 2025)
+
+
+def test_researchers_get_every_tool_for_their_dataset():
+    names = {t.name for t in app_module.SOURCE_TOOLS["atus"]}
+    assert names == {"atus_time_use", "atus_payday_window"}
+
+
 def test_mta_rejects_bad_year_without_network():
     with pytest.raises(dt.ToolInputError):
         dt.nyc_ridership(1999, "office_11", "fall", "all_day")
@@ -76,6 +89,15 @@ def test_citations_catch_unknown_id_and_made_up_number():
     report = "Friday is $14.50 [E1]. Monday is $3 [E9]."
     problems = app_module.check_citations(report, EVIDENCE)
     assert any("E9" in p for p in problems) and any("14.5" in p for p in problems)
+
+
+def test_peak_and_low_claims_must_match_the_table():
+    ev = {"E1": {"text": dt.nhanes_eating("pct_kcal_restaurant", "2021-2023", ["all"]).text},
+          "E3": {"text": dt.ce_spending("eating_out", 2022, 2025, "none", "us").text}}
+    wrong = "Restaurant calories are low on Tuesday at 17.24% [E1]."  # Wednesday (16.97) is lower
+    right = "Spending is lowest on Tuesday at $7.19 [E3] and peaks on Friday at $11.12 [E3]."
+    assert app_module.check_extremes(wrong, ev)
+    assert app_module.check_extremes(right, ev) == []
 
 
 def test_causal_wording_is_flagged():

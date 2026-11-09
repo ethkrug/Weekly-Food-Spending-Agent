@@ -8,7 +8,7 @@ Hand-written from the scoping work in ../DATA_SCOPING.md.
 SOURCES = {
     "ce_diary": {
         "name": "BLS Consumer Expenditure Survey Diary (CE Diary), 2015-2025",
-        "tool": "weekday_spending (source='ce_diary')",
+        "tool": "ce_diary_spending",
         "summary": "Household food DOLLARS by the weekday each purchase was made. About 11,000-13,000 "
                    "diary-weeks a year, nationally representative, with a New York metro subsample "
                    "(~700 diary-weeks a year). Groceries vs eating out (fast food, full service).",
@@ -29,7 +29,7 @@ About 1% of purchases have no recorded weekday and are excluded.""",
     },
     "dcpc": {
         "name": "Atlanta Fed Diary of Consumer Payment Choice (DCPC), 2021-2025",
-        "tool": "weekday_spending (source='dcpc')",
+        "tool": "dcpc_spending; dcpc_payday_window for the payday test",
         "summary": "Individual food DOLLARS by day from 3-day payment diaries (~4,000-5,500 people a year, "
                    "each October). Merchant types: grocery, sit-down restaurant, fast food. Has employment "
                    "and retirement status, so it can compare workers with retirees.",
@@ -42,12 +42,14 @@ fast_food (fast food, coffee shops, cafeterias, food trucks), eating_out, food_t
 Splits: year, employment (full_time, part_time, retired, not_employed), age_group, ny_state (2022+).
 Weights: daily_weight; standard errors clustered by person (computed in code).
 Can't do: a full year (October only); pure food at grocery stores (includes pharmacy purchases);
-NYC (only New York State, ~100 people a year); payday timing (the pay-date fields are unreliable).
+NYC (only New York State, ~100 people a year); anyone's actual payday (the pay-date fields are
+unreliable). dcpc_payday_window instead compares days that often follow a payday (1st-3rd, 15th-17th,
+28th-31st) with other October days.
 Caveats: smaller than the CE Diary, so year-by-year results are noisy; pooled 2021-2025 is better.""",
     },
     "nhanes": {
         "name": "CDC NHANES 'What We Eat in America' 24-hour recalls, 2017-2018 and 2021-2023",
-        "tool": "weekday_eating",
+        "tool": "nhanes_eating",
         "summary": "Where people's food came from (restaurant vs store) by weekday, from a nationally "
                    "representative food survey. No dollars. Shows the share of calories from restaurants "
                    "and the share of people who ate restaurant food, including at lunch vs dinner.",
@@ -65,7 +67,7 @@ Caveats: Friday sample in 2021-2023 is small (~430 people), so subgroup Fridays 
     },
     "atus": {
         "name": "BLS American Time Use Survey (ATUS), 2015-2025",
-        "tool": "weekday_time_use",
+        "tool": "atus_time_use; atus_payday_window for the payday test",
         "summary": "What people DID on each weekday: grocery shopping, buying prepared food, eating at "
                    "restaurants, cooking -- and WHERE they worked that day (office, home, mixed, no work). "
                    "The only source that links work location to food behavior. No dollars.",
@@ -79,13 +81,17 @@ mixed (both), elsewhere, no_work.
 Splits: work_location, usual_teleworker (from the CPS interview months earlier; mostly 2023+),
 age_group, period, year. Geography: us, ny_metro, nyc (NYC is very thin: ~30-50 employed weekday
 diaries a year).
-Can't do: dollars; online vs in-store grocery shopping (coded the same); one person's whole week.
+Diary dates cover every month, so atus_payday_window compares days that often follow a payday
+(1st-3rd, 15th-17th, 28th-31st) with other days. Cooking (food_prep) and eating at home (eat_home)
+show whether people cook less on the days they eat out more.
+Can't do: dollars; anyone's actual payday; online vs in-store grocery shopping (coded the same); one
+person's whole week.
 Caveats: 2020 has no data mid-March to mid-May; October 2025 is missing (federal shutdown).
 Holidays are excluded.""",
     },
     "mta": {
         "name": "MTA Subway Hourly Ridership (data.ny.gov), 2017-present",
-        "tool": "nyc_ridership",
+        "tool": "mta_subway_ridership",
         "summary": "LIVE subway entries in NYC by weekday, systemwide and at 11 Manhattan office-district "
                    "stations. Shows the weekly office rhythm (hybrid work). No spending or food data.",
         "detail": """\

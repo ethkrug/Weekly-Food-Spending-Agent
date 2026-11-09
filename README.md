@@ -39,10 +39,10 @@ The pattern comes from the class Wikipedia deep-research app (same Agents SDK + 
 | Agent | Model | Tools |
 |---|---|---|
 | **Lead** (manager) | `gemini-3.5-flash` | `list_sources`: what each dataset can and can't do · `research(task, sources)`: start one Researcher (call several in one turn for parallel) · `ask_user(question, suggestions)`: clarify a vague question; ends the run · `write_report(brief)`: run the Writer; ends the run |
-| **Researcher** (one type, run in parallel) | `gemini-3.5-flash-lite` | `describe_source` plus, for its assigned datasets only: `ce_diary_spending` (BLS CE Diary) · `dcpc_spending` (Atlanta Fed DCPC) · `nhanes_eating` (CDC NHANES) · `atus_time_use` (BLS ATUS) · `mta_subway_ridership` (MTA, live) · `reference_note` (cited office-attendance figures) |
+| **Researcher** (one type, run in parallel) | `gemini-3.5-flash-lite` | `describe_source` plus, for its assigned datasets only: `ce_diary_spending` (BLS CE Diary) · `dcpc_spending` and `dcpc_payday_window` (Atlanta Fed DCPC) · `nhanes_eating` (CDC NHANES) · `atus_time_use` and `atus_payday_window` (BLS ATUS) · `mta_subway_ridership` (MTA, live) · `reference_note` (cited office-attendance figures) |
 | **Writer** | `gemini-3.5-flash` | none: sees only the question, the Lead's brief, the findings and the evidence records |
 
-Each data tool reads **one** dataset and is named after it. The docstring starts with the dataset in capitals (e.g. "BLS AMERICAN TIME USE SURVEY ONLY"), and the Researcher prompt maps each tool to its dataset.
+Each data tool reads **one** dataset and is named after it. The two payday tools compare days that often follow a payday (1st–3rd, 15th–17th, 28th–31st) with other days of the month on the same weekday; no survey records anyone's actual payday. The docstring starts with the dataset in capitals (e.g. "BLS AMERICAN TIME USE SURVEY ONLY"), and the Researcher prompt maps each tool to its dataset.
 
 ## The data
 
@@ -99,10 +99,12 @@ Checks run during the build:
 
 **Claims**
 - **Evidence or nothing.** Every query result gets an evidence ID. The Writer must end every sentence with a number in `[E#]`. Code then checks every cited ID exists and every number in a cited sentence appears in that evidence, allowing rounding and index-to-percent conversion. On a failure the Writer gets one rewrite listing the exact problems; anything still unmatched is flagged at the bottom of the report. A Sources section lists every cited query.
-- **Calibrated difference language.** Every comparison in a tool's output is labeled "clear", "suggestive" or "no clear difference". The Writer must use matching words ("higher", "leans higher", "about the same").
+- **Calibrated difference language.** Every comparison in a tool's output is labeled "clear", "suggestive" or "no clear difference". The Writer must use matching words ("higher", "leans higher", "about the same"), may call a day a peak or low only when its label is clear, and may describe a weekly shape only for the sources whose labels show it.
+- **Peaks and lows are checked in code.** When the report says a day is the low or peak "at" a number, `check_extremes()` finds that number's table in the cited evidence and checks the day really is the lowest or highest (of all five weekdays, or of Monday–Thursday). A mismatch goes into the rewrite request.
+- **Friday is expected.** The Writer states the Friday peak briefly, explains it, and spends most of the report comparing Monday–Thursday.
 - **No causal claims:** "consistent with", never "causes", "drives" or "because of". Code scans the report for causal phrases, raw data labels (e.g. `age_65_plus`) and length over 1,100 words, and includes them in the one rewrite request.
 - **Places kept apart:** the NY metro (CE), NY State (DCPC) and NYC (MTA, ATUS) are named for what they are.
-- **Required sections:** a "What explains it?" verdict table (Supported / Mixed / Not supported / Can't tell) and a "What the data can't tell us" section.
+- **Required sections:** a "What explains it?" verdict table (Supported / Mixed / Not supported / Can't tell / Not tested) and a "What the data can't tell us" section. "Can't tell" is only for things no dataset here measures; "Not tested" is for things a dataset could test but no Researcher did. The explanations the Lead is told to test: office days vs home days, an end-of-week habit, cooking less as the week goes on, income, payday timing and a Monday grocery restock.
 
 **Budget** (in code): 3 research rounds, 8 Researchers, 5 per round, 6 data queries per Researcher, 6 MTA calls per run, Lead `max_turns=14`, Researcher `max_turns=10`, an 8-minute run timeout, 90 s model timeouts with 2 retries. Closing the page cancels the run.
 
@@ -170,14 +172,11 @@ Settings: 2 GiB memory, 600 s request timeout, max 1 instance, unauthenticated a
 
 ## Example run
 
-*"Which weekday do Americans spend the most on eating out, and why?"* took 88 s and used 3 rounds, 7 Researchers, 25 evidence records and 47 tool calls.
-- **Round 1** ran 5 Researchers in parallel: DCPC by employment; ATUS by work location; NHANES lunch vs dinner; CE nationally and for the NY metro; and MTA plus office-attendance notes.
-- **Rounds 2 and 3** were follow-ups on groceries vs eating out, and on cooking vs eating out.
-- **The report found** eating out peaks on Friday in every source:
-  - CE: $9.73 vs $6.46 on Tuesday, per household per day
-  - NHANES: 54% of people ate restaurant food on Friday vs ~40% Mon–Thu
-  - ATUS: Friday restaurant meals peak for office workers and home workers alike
-- **The verdicts:** the spike shows up for retirees and home workers while NYC office attendance is lowest on Friday, so the report rated an end-of-week habit "Supported", office commuting "Not supported", and payday timing "Can't tell from this data".
+*"Why do Americans eat out more on some weekdays than others?"* used 2 rounds, 5 Researchers and 23 evidence records.
+- **Round 1** ran 4 Researchers in parallel: the baseline weekday pattern (CE, DCPC); office vs home days with the NYC office week (ATUS, MTA, office reports); cooking less as the week goes on (ATUS, NHANES); and end-of-week habit, income and payday timing (DCPC, CE, ATUS, both payday tools).
+- **Round 2** tested the Monday grocery restock (CE, DCPC).
+- **The report** led with Monday–Thursday: eating out is lowest on Tuesday ($7.19 per household per day, 2022–2025) and climbs to $8.16 on Thursday before Friday's $11.12. Groceries run the other way, higher on Monday ($15.68) and lowest on Wednesday ($14.19).
+- **The verdicts:** end-of-week habit "Supported" (retirees and households with no one working show the Friday peak), Monday restock "Supported", office days "Mixed", cooking less "Mixed", payday timing "Not supported" (no difference on likely paydays in either the time-use survey or the payment diary).
 
 ## Files
 

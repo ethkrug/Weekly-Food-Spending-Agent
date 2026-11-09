@@ -413,6 +413,88 @@ def atus_time_use(activity: str, stat: str, start_year: int, end_year: int, spli
 
 
 # --------------------------------------------------------------------------------------------
+# payday_window: food on common paydays vs other days of the month (ATUS all year, DCPC October)
+# --------------------------------------------------------------------------------------------
+
+PAY_WINDOWS = {"1st-3rd": (1, 3), "15th-17th": (15, 17), "28th-31st": (28, 31)}
+
+
+def payday_window(source: str, measure: str, stat: str, start_year: int, end_year: int) -> Result:
+    """No survey records anyone's payday, so this compares days that often follow one (monthly and
+    semimonthly pay, Social Security on the 3rd) with the rest of the month. Each window is compared
+    with 'other days' within the same weekday and then averaged over Mon-Fri, so the weekday mix of each
+    window can't create a difference."""
+    if source == "atus":
+        if measure not in ATUS_ACTIVITIES:
+            raise ToolInputError(f"activity must be one of {ATUS_ACTIVITIES}")
+        if stat not in ("share", "minutes"):
+            raise ToolInputError("stat must be share or minutes")
+        y0, y1 = _years(start_year, end_year, 2015, 2025)
+        df = frame("atus_day")
+        df = df[df.year.between(y0, y1) & df.weekday.between(2, 6) & (df.holiday != 1)]
+        col = f"{measure}_any" if stat == "share" else f"{measure}_min"
+        y = df[col].to_numpy(float) * (100.0 if stat == "share" else 1.0)
+        cluster = df.TUCASEID.to_numpy()
+        unit = "% who did it" if stat == "share" else "avg minutes"
+        head = (f"ATUS, {measure.replace('_', ' ')} ({stat}), {y0}-{y1}, everyone 15+, weekdays, holidays excluded, "
+                f"all months.")
+        caveats = ["No dollars."]
+    elif source == "dcpc":
+        if measure not in DCPC_MEASURES:
+            raise ToolInputError(f"measure must be one of {DCPC_MEASURES}")
+        y0, y1 = _years(start_year, end_year, 2021, 2025)
+        df = frame("dcpc_day")
+        df = df[df.year.between(y0, y1) & df.weekday.between(2, 6)]
+        y = df[measure].to_numpy(float)
+        cluster = df.person.to_numpy()
+        unit = "$ per person per day"
+        head = f"DCPC, {measure.replace('_', ' ')}, October {y0}-{y1}, weekdays."
+        caveats = ["October only.", "DCPC is small; treat DCPC-only results as suggestive unless another source agrees."]
+    else:
+        raise ToolInputError("source must be atus or dcpc")
+    dom = pd.to_datetime(df.date.astype(str), format="mixed").dt.day.to_numpy()
+    window = np.full(len(df), "other", dtype=object)
+    for name, (a, b) in PAY_WINDOWS.items():
+        window[(dom >= a) & (dom <= b)] = name
+    w, wd = df.w.to_numpy(float), df.weekday.to_numpy()
+    days = [d for d in WEEKDAYS if (wd == d).any()]
+    cells, infl = {}, {}
+    for name in list(PAY_WINDOWS) + ["other"]:
+        for d in days:
+            m = (window == name) & (wd == d)
+            if m.sum() == 0:
+                continue
+            W = w[m].sum()
+            cells[(name, d)] = (w[m] * y[m]).sum() / W
+            e = np.zeros(len(df))
+            e[m] = w[m] * (y[m] - cells[(name, d)]) / W
+            infl[(name, d)] = e
+    k = len(np.unique(cluster))
+    scale = SE_SCALE.get(source, 1.0)
+    lines = [f"  window | {unit} (weekday-adjusted) | vs other days | SE | z | label | n"]
+    other = np.mean([cells[("other", d)] for d in days])
+    for name in PAY_WINDOWS:
+        ok = [d for d in days if (name, d) in cells and ("other", d) in cells]
+        if len(ok) < len(days):
+            lines.append(f"  {name} | too few days")
+            continue
+        level = np.mean([cells[(name, d)] for d in ok])
+        diff = np.mean([cells[(name, d)] - cells[("other", d)] for d in ok])
+        tot = sum(infl[(name, d)] - infl[("other", d)] for d in ok) / len(ok)
+        se = np.sqrt((pd.Series(tot).groupby(cluster).sum() ** 2).sum() * k / max(k - 1, 1)) * scale
+        z = diff / se if se > 0 else np.nan
+        n = int((window == name).sum())
+        lines.append(f"  {name} | {level:.2f} | {diff:+.2f} | {se:.2f} | {z:+.1f} | {label(z)} | {n:,}")
+    lines.append(f"  other days | {other:.2f} | | | | | {int((window == 'other').sum()):,}")
+    caveats += ["Nobody's actual payday is recorded: these are days that often follow one.",
+                "Every-other-Friday paydays can't be separated from Friday itself."]
+    text = (head + " Each window is compared with other days of the month on the same weekday, then averaged "
+            "over Mon-Fri.\n" + "\n".join(lines) + "\nCaveats: " + " ".join(caveats))
+    return Result(text, source, {"measure": measure, **({"stat": stat} if source == "atus" else {}),
+                                 "years": f"{y0}-{y1}", "test": "payday windows"}, caveats)
+
+
+# --------------------------------------------------------------------------------------------
 # nyc_ridership: live MTA data (see mta.py for its guardrails)
 # --------------------------------------------------------------------------------------------
 

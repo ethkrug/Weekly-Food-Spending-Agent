@@ -283,8 +283,50 @@ def reference_note(ctx: RunContextWrapper[Research],
     return _evidence(ctx, dt.reference_note, topic=topic)
 
 
-SOURCE_TOOLS = {"ce_diary": ce_diary_spending, "dcpc": dcpc_spending, "nhanes": nhanes_eating,
-                "atus": atus_time_use, "mta": mta_subway_ridership, "reference": reference_note}
+@function_tool
+def atus_payday_window(
+    ctx: RunContextWrapper[Research],
+    activity: Literal["grocery", "buy_prepared_food", "eat_restaurant", "eat_at_workplace", "eat_home", "food_prep"],
+    stat: Literal["share", "minutes"] = "share",
+    start_year: int = 2015,
+    end_year: int = 2025,
+) -> str:
+    """AMERICAN TIME USE SURVEY ONLY. Payday test: a food activity on days that often follow a payday
+    (1st-3rd, 15th-17th, 28th-31st of the month) vs other days, all months, compared within weekday.
+
+    Args:
+        activity: grocery, buy_prepared_food, eat_restaurant, eat_at_workplace, eat_home, food_prep.
+        stat: share (% who did it that day) or minutes.
+        start_year: First year, 2015-2025.
+        end_year: Last year, 2015-2025.
+    """
+    return _evidence(ctx, dt.payday_window, source="atus", measure=activity, stat=stat,
+                     start_year=start_year, end_year=end_year)
+
+
+@function_tool
+def dcpc_payday_window(
+    ctx: RunContextWrapper[Research],
+    measure: Literal["groceries", "eating_out", "fast_food", "full_service", "food_total"],
+    start_year: int = 2021,
+    end_year: int = 2025,
+) -> str:
+    """ATLANTA FED DIARY OF CONSUMER PAYMENT CHOICE ONLY. Payday test: food dollars on days that often
+    follow a payday (1st-3rd, 15th-17th, 28th-31st of October) vs other October days, within weekday.
+
+    Args:
+        measure: groceries, eating_out, fast_food, full_service, food_total.
+        start_year: First year, 2021-2025.
+        end_year: Last year, 2021-2025.
+    """
+    return _evidence(ctx, dt.payday_window, source="dcpc", measure=measure, stat="share",
+                     start_year=start_year, end_year=end_year)
+
+
+# Each dataset's tools. A Researcher gets only the tools for the datasets it was assigned.
+SOURCE_TOOLS = {"ce_diary": [ce_diary_spending], "dcpc": [dcpc_spending, dcpc_payday_window],
+                "nhanes": [nhanes_eating], "atus": [atus_time_use, atus_payday_window],
+                "mta": [mta_subway_ridership], "reference": [reference_note]}
 
 # --- The researcher: one narrow task, with only its assigned datasets' tools ---
 
@@ -299,9 +341,11 @@ Each data tool reads exactly ONE dataset, and its name says which:
   nationally and for the New York metro area.
 - dcpc_spending -> Atlanta Fed Diary of Consumer Payment Choice: individual food DOLLARS by weekday,
   October 2021-2025, by employment (full-time, retired...).
+- dcpc_payday_window -> same payment diary: food dollars on likely paydays vs other October days.
 - nhanes_eating -> CDC NHANES: where people's food CAME FROM (restaurant vs store) by weekday. No dollars.
 - atus_time_use -> BLS American Time Use Survey: food ACTIVITIES by weekday and by where people
-  worked that day (office vs home). No dollars.
+  worked that day (office vs home), including cooking (food_prep) and eating at home. No dollars.
+- atus_payday_window -> same time-use survey: food activities on likely paydays vs other days, all months.
 - mta_subway_ridership -> MTA subway entries: the NYC office week's shape. No food data.
 - reference_note -> published NYC office-attendance figures to quote, with links.
 You only have the tools for the datasets assigned to you. describe_source explains any dataset.
@@ -357,6 +401,12 @@ Write markdown with these sections:
    point the same way, say so, because agreement across independent surveys is the strongest evidence
    you have. When they disagree, say how and offer the likely reason (different units, years, people,
    or the October-only payment diary).
+   Different Monday-Thursday shapes are usually not a disagreement. The CE Diary has ~46,000
+   households per weekday and can see gaps of a few percent; NHANES has ~400-1,500 people per weekday
+   and its Monday-Thursday labels are usually "no clear difference". Say the smaller survey is too
+   small to see gaps that size; don't force one shape onto both. Only when two sources each show a
+   clear but different shape, explain it by what each measures: dollars a household spends (a bigger
+   check, takeout for the family) vs whether one person ate restaurant food vs minutes.
 3. One "##" section per part of the question (for example "Groceries vs eating out", "Who differs",
    "New York City"). A small markdown table of weekday numbers helps when comparing days.
 4. "## What explains it?": a table with one row per explanation the evidence touches (office days /
@@ -382,7 +432,8 @@ Citations are mandatory:
   in the evidence.
 
 Describing differences: follow the evidence labels.
-- clear -> "higher", "lower", "the highest day".
+- clear -> "higher", "lower", "the highest day". The labels are for you, not the reader: never write
+  "clear higher" or "a clear difference"; just say "higher".
 - suggestive -> "leans higher", "somewhat lower", "a hint that".
 - no clear difference -> "about the same". Never call it a difference.
 - Peaks and lows: call a day "the peak", "the low" or "a midweek peak" only when its "vs other
@@ -460,7 +511,7 @@ async def research(
     number, this_round = run.researchers, run.rounds
     # What researcher.as_tool() does, written out: a fresh context per researcher, a numbered copy
     # with its own column in the context panel, and only the tools for its assigned datasets.
-    agent = researcher.clone(name=f"Researcher {number}", tools=[describe_source] + [SOURCE_TOOLS[s] for s in assigned])
+    agent = researcher.clone(name=f"Researcher {number}", tools=[describe_source] + [t for s in assigned for t in SOURCE_TOOLS[s]])
     run.hooks.emit({"type": "researcher", "agent": agent.name, "round": this_round, "task": task, "sources": assigned})
     prompt = f"Task: {task}\nDatasets assigned: {', '.join(assigned)}\nOverall question (for context): {run.question}"
     try:
@@ -528,9 +579,19 @@ parallel), ask_user, write_report (hands everything to the Writer and ends the r
    and the 1-3 datasets that fit it. Spread the work across kinds of evidence: dollars (ce_diary, dcpc),
    eating behavior (nhanes), activities and work location (atus), the NYC office week (mta, reference),
    New York spending (ce_diary with ny_metro). Where the question asks why, set tasks that test the
-   candidate explanations: office days vs home days (hybrid work), an end-of-week habit that shows up
-   even for people who don't work, payday timing, a Monday restock. Friday being the top weekday is
-   expected, so also ask Researchers how Monday through Thursday compare with each other.
+   candidate explanations:
+   - office days vs home days (hybrid work): atus by work_location; mta and reference for NYC.
+   - an end-of-week habit that shows up even for people who don't work: dcpc by employment, ce_diary
+     by earners, atus no_work days.
+   - cooking less as the week goes on: atus food_prep and eat_home minutes by weekday, set against
+     eat_restaurant and buy_prepared_food. Less cooking on the days eating out rises fits swapping
+     the stove for a restaurant.
+   - money: ce_diary split_by=income_group. Compare the index column (Friday relative to each
+     group's own week), not just dollars, and how flat each group's Monday-Thursday is.
+   - payday timing: atus_payday_window and dcpc_payday_window (days near the 1st, 15th, month-end).
+   - a Monday grocery restock: ce_diary groceries by weekday.
+   Friday being the top weekday is expected, so also ask Researchers how Monday through Thursday
+   compare with each other.
 4. Read the findings and decide. If part of the question has no evidence, sources disagree, or a finding
    begs an obvious follow-up (e.g. "does the Friday spike hold for retirees?"), start another round
    aimed at just that gap. You have at most {MAX_ROUNDS} rounds in all (the first plus {MAX_ROUNDS - 1}
@@ -586,6 +647,60 @@ def check_citations(report: str, evidence: dict[str, dict]) -> list[str]:
     return problems
 
 
+DAYS = {"monday": "Mon", "tuesday": "Tue", "wednesday": "Wed", "thursday": "Thu", "friday": "Fri"}
+_DAY = r"(Monday|Tuesday|Wednesday|Thursday|Friday)s?"
+_NUM = r"\(?\$?(\d+(?:\.\d+)?)"
+EXTREME_CLAIMS = [  # (word, day, number) in either order: "low on Tuesday at 17.24%", "peak of $11.12 on Friday"
+    (re.compile(rf"\b(lowest|low|peaks?|peaked|highest)\b(?:\s+[\w-]+){{0,5}}?\s+(?:on\s+)?{_DAY}\b[^.\d]{{0,25}}?{_NUM}", re.I), (1, 2, 3)),
+    (re.compile(rf"\b(lowest|low|peaks?|peaked|highest)\s+(?:of|at)\s+{_NUM}\s+on\s+{_DAY}", re.I), (1, 3, 2)),
+    (re.compile(rf"\b{_DAY}(?:'s|’s)?\s+(low|peak|high)\s+(?:of|at)\s+{_NUM}", re.I), (2, 1, 3)),
+]
+
+
+def _weekday_blocks(text: str) -> list[dict[str, float]]:
+    """Each weekday table in a tool result, as {"Mon": value, ...} from its first number column."""
+    blocks, cur = [], {}
+    for line in text.splitlines():
+        if line.strip().startswith("[") and cur:
+            blocks.append(cur)
+            cur = {}
+        m = re.match(r"\s+(Mon|Tue|Wed|Thu|Fri) \| \$?([\d,]+(?:\.\d+)?)", line)
+        if m:
+            cur[m.group(1)] = float(m.group(2).replace(",", ""))
+    return blocks + ([cur] if cur else [])
+
+
+def check_extremes(report: str, evidence: dict[str, dict]) -> list[str]:
+    """A day called the low/peak must be the lowest/highest day in the table its number comes from
+    (counting either all five weekdays or just Monday-Thursday)."""
+    problems = []
+    for sentence in re.split(r"(?<=[.!?])\s+(?=[A-Z])|\n", report):
+        ids = [e.strip() for m in CITE.finditer(sentence) for e in m.group(1).split(",")]
+        blocks = [(eid, b) for eid in ids if eid in evidence for b in _weekday_blocks(evidence[eid]["text"])]
+        if not blocks:
+            continue
+        for pattern, (wi, di, ni) in EXTREME_CLAIMS:
+            for m in pattern.finditer(CITE.sub("", sentence)):
+                word, day, value = m.group(wi).lower(), DAYS[m.group(di).lower()], float(m.group(ni))
+                low = word.startswith("low")
+                homes = [(eid, b) for eid, b in blocks if abs(b.get(day, -1e9) - value) < 0.006]
+                if not homes:
+                    continue
+                pick = min if low else max
+
+                def is_extreme(b):
+                    full = len(b) == 5
+                    mon_thu = {d: v for d, v in b.items() if d != "Fri"}
+                    return pick(b, key=b.get) == day or (full and day != "Fri" and pick(mon_thu, key=mon_thu.get) == day)
+
+                if not any(is_extreme(b) for _, b in homes):
+                    eid, b = homes[0]
+                    true_day = pick(b, key=b.get)
+                    problems.append(f"Calls {m.group(di)} the {'low' if low else 'peak'} at {value:g}, but in {eid} the "
+                                    f"{'lowest' if low else 'highest'} weekday is {true_day} ({b[true_day]:g}).")
+    return problems
+
+
 CAUSAL = re.compile(r"\b(causes?|caused by|causing|drives|driven by|driving|because of|due to|proves?|"
                     r"explains why|(?:does|do) not explain|doesn't explain|don't explain|leads? to|"
                     r"reflect(?:s|ing)?|result(?:s|ing)? from|thanks to)\b", re.I)
@@ -630,7 +745,7 @@ async def write_and_check(run: Research, brief: str) -> str:
               + "\n\n# Evidence records\n\n" + evidence_for_writer(run))
     result = await Runner.run(writer, prompt, context=run, hooks=run.hooks, max_turns=2)
     report = str(result.final_output)
-    problems = check_citations(report, run.evidence)
+    problems = check_citations(report, run.evidence) + check_extremes(report, run.evidence)
     wording = check_wording(report)
     run.hooks.activity("Writer", f"checked citations and wording: {len(problems) + len(wording)} problem(s)"
                        + (", rewriting" if problems or wording else ""))
@@ -641,7 +756,7 @@ async def write_and_check(run: Research, brief: str) -> str:
         result = await Runner.run(writer, result.to_input_list() + [{"role": "user", "content": fix}],
                                   context=run, hooks=run.hooks, max_turns=2)
         report = str(result.final_output)
-        problems = check_citations(report, run.evidence)
+        problems = check_citations(report, run.evidence) + check_extremes(report, run.evidence)
     return report + sources_section(report, run) + (
         "\n\n> **Citation check:** " + str(len(problems)) + " number(s) couldn't be matched to the cited evidence: "
         + "; ".join(problems[:5]) if problems else "")
