@@ -161,7 +161,7 @@
                 <summary>The data, and its limits</summary>
                 <ul>
                     <li style="--c: var(--ce)"><b>BLS Consumer Expenditure Diary</b>, 2015–2025: household food dollars by weekday, including the New York metro area.</li>
-                    <li style="--c: var(--dcpc)"><b>Atlanta Fed Diary of Consumer Payment Choice</b>, October 2021–2025: individual food dollars by day, by employment.</li>
+                    <li style="--c: var(--dcpc)"><b>Atlanta Fed Diary of Consumer Payment Choice</b>, October 2021–2025: a national sample (not just Atlanta) of individual food dollars by day, by employment.</li>
                     <li style="--c: var(--nhanes)"><b>CDC NHANES</b>, 2017–2023: where people's food came from (restaurant vs store) by weekday.</li>
                     <li style="--c: var(--atus)"><b>BLS American Time Use Survey</b>, 2015–2025: food activities by weekday and by where people worked that day.</li>
                     <li style="--c: var(--mta)"><b>MTA subway ridership</b>, 2017–now (live): the shape of the NYC office week.</li>
@@ -336,7 +336,7 @@
                 // Verdict words -> pills
                 for (const td of root.querySelectorAll("td")) {
                     const t = td.textContent.trim().toLowerCase().replace("’", "'");
-                    const k = t === "supported" ? "yes" : t === "mixed" ? "mixed" : t === "not supported" ? "no" : t.startsWith("can't tell") ? "cant" : null;
+                    const k = t === "supported" ? "yes" : t === "mixed" ? "mixed" : t === "not supported" ? "no" : t.startsWith("can't tell") || t === "not tested" ? "cant" : null;
                     if (k) td.replaceChildren(el("span", "v " + k, td.textContent.trim()));
                 }
                 // Wide tables scroll sideways on phones; a Monday-Friday table gets a bar chart of its first numeric column

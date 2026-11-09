@@ -362,7 +362,10 @@ Write markdown with these sections:
 4. "## What explains it?": a table with one row per explanation the evidence touches (office days /
    hybrid work, an end-of-week habit, payday timing, a Monday restock, others the findings raise):
    | Explanation | Verdict | Evidence |, with Verdict one of Supported, Mixed, Not supported,
-   Can't tell from this data, and one line of cited evidence.
+   Can't tell from this data, Not tested, and one line of cited evidence. Use "Can't tell from this
+   data" only when no dataset here can measure it (e.g. paydays). If a dataset could test it but no
+   researcher did (e.g. a Monday restock needs grocery dollars by weekday), write "Not tested" and say
+   which data would test it. Never claim a dataset lacks something it has.
 5. "## What the data can't tell us": the specific limits that matter for this question.
 
 Citations are mandatory:
@@ -382,6 +385,11 @@ Describing differences: follow the evidence labels.
 - clear -> "higher", "lower", "the highest day".
 - suggestive -> "leans higher", "somewhat lower", "a hint that".
 - no clear difference -> "about the same". Never call it a difference.
+- Peaks and lows: call a day "the peak", "the low" or "a midweek peak" only when its "vs other
+  weekdays" line is clear (or say it "leans" highest/lowest when suggestive). Being the biggest number
+  is not enough: in a small sample, the top Monday-Thursday day is often "no clear difference".
+- Describe a weekly shape (e.g. "dips Tuesday, climbs through Thursday") only for the sources whose
+  labels show it, and cite only those. Don't attach other surveys to it unless their labels agree.
 - Never claim cause: write "consistent with", "points toward", "doesn't fit". Never "causes",
   "drives", "because of", "proves", "due to".
 - Keep places apart: national results are not New York results. The NY metro area (CE Diary), New
@@ -579,7 +587,8 @@ def check_citations(report: str, evidence: dict[str, dict]) -> list[str]:
 
 
 CAUSAL = re.compile(r"\b(causes?|caused by|causing|drives|driven by|driving|because of|due to|proves?|"
-                    r"explains why|(?:does|do) not explain|doesn't explain|don't explain|leads? to)\b", re.I)
+                    r"explains why|(?:does|do) not explain|doesn't explain|don't explain|leads? to|"
+                    r"reflect(?:s|ing)?|result(?:s|ing)? from|thanks to)\b", re.I)
 
 
 MAX_WORDS = 1100  # the prompt asks for 500-900; tables add words, so only flag clear overruns
