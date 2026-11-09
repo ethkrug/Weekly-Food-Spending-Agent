@@ -41,6 +41,24 @@
             /* ---- ask ---- */
             .ask { background: var(--ink); color: var(--bg); border-radius: 20px; padding: 1.3rem; }
             .ask .row { display: flex; gap: 0.6rem; }
+            #convo { margin-bottom: 1rem; padding-bottom: 1rem; border-bottom: 1px solid #4a3b2e; }
+            #convo .head { display: flex; align-items: center; gap: 0.6rem; flex-wrap: wrap; }
+            #convo .label { font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.08em; color: #c9b69e; font-weight: 600; }
+            #convo-status { font-size: 0.85rem; color: #e9dccb; flex: 1; min-width: 12rem; }
+            #convo-status::before { content: ""; display: inline-block; width: 8px; height: 8px; border-radius: 50%; border: 1.5px solid #a8957f; margin-right: 0.45rem; vertical-align: 0; }
+            #convo.has #convo-status::before { background: var(--sand); border-color: var(--sand); }
+            #convo-clear { background: none; border: 1px solid #5a4a3b; color: #e9dccb; border-radius: 999px; padding: 0.2rem 0.7rem; font-size: 0.75rem; }
+            #convo-clear:hover { border-color: var(--sand); color: #fff; }
+            #convo:not(.has) #convo-clear { display: none; }
+            #convo-turns { list-style: none; margin: 0.8rem 0 0; padding: 0; display: grid; gap: 0.6rem; max-height: 22rem; overflow-y: auto; }
+            #convo-turns:empty { display: none; }
+            .turn { display: grid; gap: 0.35rem; }
+            .turn .you { justify-self: end; max-width: 85%; background: var(--tomato); color: #fff; padding: 0.45rem 0.8rem; border-radius: 14px 14px 4px 14px; font-size: 0.9rem; }
+            .turn .reply { max-width: 92%; background: #3a2e24; color: #e9dccb; padding: 0.55rem 0.8rem; border-radius: 14px 14px 14px 4px; font-size: 0.85rem; }
+            .turn .reply b { color: var(--sand); font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.06em; margin-right: 0.4rem; }
+            .turn .reply button { background: none; border: 0; color: var(--sand); font-size: 0.78rem; padding: 0; margin-top: 0.3rem; display: block; text-decoration: underline; }
+            .turn .reply pre { white-space: pre-wrap; font-family: "JetBrains Mono", monospace; font-size: 0.72rem; line-height: 1.5; color: #d9cbb8; max-height: 16rem; overflow-y: auto; margin-top: 0.4rem; }
+            .turn.now .reply { font-style: italic; color: #a8957f; }
             #question { flex: 1; min-width: 0; background: #3a2e24; border: 0; border-radius: 12px; padding: 0.9rem 1rem; color: #fff; font: inherit; font-size: 1rem; outline: none; }
             #question:focus { box-shadow: 0 0 0 2px var(--sand); }
             #question::placeholder { color: #a8957f; }
@@ -171,6 +189,14 @@
             </details>
 
             <form id="task" class="ask">
+                <div id="convo">
+                    <div class="head">
+                        <span class="label">Conversation</span>
+                        <span id="convo-status">No earlier context. The model will see only the question you send.</span>
+                        <button id="convo-clear" type="button">Start over</button>
+                    </div>
+                    <ol id="convo-turns"></ol>
+                </div>
                 <div class="row">
                     <input id="question" placeholder="e.g. Which weekday do Americans spend the most eating out, and why?" autocomplete="off" />
                     <button id="run" type="submit">Research</button>
@@ -395,6 +421,62 @@
                 if (source) source.close();
             }
 
+            // ---------- conversation: what the model will see with the next question ----------
+            const KIND = { report: "Report", clarify: "Asked you", answer: "Answered" };
+            const store = { get: () => { try { return localStorage.getItem("foodweek.session"); } catch { return null; } },
+                            set: (v) => { try { v ? localStorage.setItem("foodweek.session", v) : localStorage.removeItem("foodweek.session"); } catch {} } };
+
+            let convoTurns = [];
+            function renderConvo(turns = [], now = null) {
+                convoTurns = turns;
+                const list = $("convo-turns");
+                list.replaceChildren();
+                for (const t of turns) {
+                    const li = el("li", "turn");
+                    li.appendChild(el("div", "you", t.question));
+                    const reply = el("div", "reply");
+                    reply.append(el("b", null, KIND[t.kind] || "Reply"));
+                    const plain = t.reply.replace(/^#+.*$/gm, "").replace(/^- /gm, "· ").replace(/[*|]/g, "").replace(/\s+/g, " ").trim();
+                    reply.append(plain.length > 220 ? plain.slice(0, 220) + "…" : plain);
+                    if (plain.length > 220) {
+                        const full = el("pre", null, t.reply);
+                        full.hidden = true;
+                        const btn = el("button", null, "Show everything the model sees");
+                        btn.type = "button";
+                        btn.onclick = () => { full.hidden = !full.hidden; btn.textContent = full.hidden ? "Show everything the model sees" : "Hide"; };
+                        reply.append(btn, full);
+                    }
+                    li.appendChild(reply);
+                    list.appendChild(li);
+                }
+                if (now) {
+                    const li = el("li", "turn now");
+                    li.append(el("div", "you", now), el("div", "reply", "Researching…"));
+                    list.appendChild(li);
+                }
+                list.scrollTop = list.scrollHeight;
+                const n = turns.length;
+                $("convo").classList.toggle("has", n > 0);
+                $("convo-status").textContent = now
+                    ? (n ? `The model is working with your question plus the ${n} earlier turn${n > 1 ? "s" : ""} above.` : "No earlier context: the model is working with this question only.")
+                    : (n ? `The model will see ${n === 1 ? "this earlier turn" : `these ${n} earlier turns`} with your next question.` : "No earlier context. The model will see only the question you send.");
+            }
+
+            $("convo-clear").onclick = async () => {
+                if (sessionId) { try { await fetch("/clear?session_id=" + encodeURIComponent(sessionId), { method: "POST" }); } catch {} }
+                sessionId = null; awaitingClarification = false; store.set(null);
+                $("clarify").style.display = "none";
+                renderConvo([]);
+            };
+
+            sessionId = store.get();
+            if (sessionId) {
+                fetch("/history?session_id=" + encodeURIComponent(sessionId)).then((r) => r.json()).then((h) => {
+                    renderConvo(h.turns || []);
+                    if (!(h.turns || []).length) { sessionId = null; store.set(null); }  // the server restarted and forgot it
+                }).catch(() => {});
+            }
+
             // ---------- context drawer ----------
             $("ctx-open").onclick = () => document.body.classList.add("ctx-open");
             $("ctx-close").onclick = () => document.body.classList.remove("ctx-open");
@@ -406,8 +488,8 @@
                 if (!question) return;
                 if (source) source.close();
                 const params = new URLSearchParams({ question });
-                // A reply to a clarifying question goes to the same session, which remembers the original question.
-                if (awaitingClarification && sessionId) params.set("session_id", sessionId);
+                // Every question goes to the same session, which remembers the conversation.
+                if (sessionId) params.set("session_id", sessionId);
 
                 $("question").value = "";
                 $("clarify").style.display = "none";
@@ -427,7 +509,10 @@
                 source = new EventSource("/run?" + params);
                 source.onmessage = (msg) => {
                     const event = JSON.parse(msg.data);
-                    if (event.type === "start") { runId = event.run_id; sessionId = event.session_id; }
+                    if (event.type === "start") {
+                        runId = event.run_id; sessionId = event.session_id; store.set(sessionId);
+                        renderConvo(event.history || [], question);
+                    }
                     else if (event.type === "context") showContext(runId);
                     else if (event.type === "researcher") {
                         if (!rounds.has(event.round)) { rounds.add(event.round); heading(event.round === 1 ? "Round 1" : `Round ${event.round} · follow-up`); }
@@ -436,6 +521,7 @@
                     else if (event.type === "tool") addCall(event);
                     else if (event.type === "activity") onActivity(event.agent, event.text);
                     else if (event.type === "done") {
+                        renderConvo(event.history || []);
                         const secs = Math.round((Date.now() - started) / 1000);
                         if (event.kind === "clarify") {
                             awaitingClarification = true;
@@ -451,12 +537,14 @@
                     } else if (event.type === "error") {
                         $("report").replaceChildren(el("p", "error", "The research failed: " + event.message));
                         finish("failed", "failed");
+                        renderConvo(convoTurns);
                     }
                 };
                 source.onerror = () => {
                     if ($("run").disabled) {
                         $("report").replaceChildren(el("p", "error", "Lost the connection to the server. Try again in a moment."));
                         finish("failed", "failed");
+                        renderConvo(convoTurns);
                     }
                 };
             });

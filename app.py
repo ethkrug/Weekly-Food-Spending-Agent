@@ -71,6 +71,7 @@ class Research:
 
     hooks: PanelHooks
     question: str = ""
+    earlier_questions: list[str] = field(default_factory=list)  # this session's earlier questions
     lead_turns: int = 0  # how many model replies the Lead has made
     rounds: int = 0  # how many Lead turns started researchers
     round_turn: int = -1  # the Lead turn the current round belongs to
@@ -581,8 +582,16 @@ parallel), ask_user, write_report (hands everything to the Writer and ends the r
      eat?", "tell me about NYC", "is Friday different?". Ask one short question and give 2-4 sharper
      rewrites. Don't ask when a sensible reading exists: "Which weekday do Americans spend the most on
      food?" is clear (cover groceries and eating out, nationally). If the message already contains the
-     user's clarification, don't ask again.
+     user's clarification, don't ask again. If your last turn asked the user something, the new message
+     may answer it (read the two together) or may be a new question; judge which.
    - Weekends: this tool covers Monday-Friday. Say so in your brief and answer the weekday part.
+   - Follow-ups: the message may start with "Conversation so far": this session's earlier questions and
+     replies. Read the new question in light of them ("what about lunch?" after a report on eating out
+     means weekday lunch out). Don't ask for a detail the conversation already gives: a bare "eating out" or "groceries"
+     right after a New York report means that topic in New York vs the country. Earlier reports
+     tell you what was found and asked; research the new question afresh (their numbers have no
+     evidence IDs now and the Writer can't cite them), and point Researchers at what's new.
+     Begin your brief with "Standalone question:" and the question as it reads on its own.
 2. Call list_sources once, then plan.
 3. Start a round of 2-5 Researchers in ONE turn. Give each one narrow task (one measure, one comparison)
    and the 1-3 datasets that fit it. Spread the work across kinds of evidence: dollars (ce_diary, dcpc),
@@ -717,7 +726,7 @@ CAUSAL = re.compile(r"\b(causes?|caused by|causing|drives|driven by|driving|beca
 
 LABEL_WORDING = re.compile(r"\bclear(?:ly)? (?:higher|lower)\b|(?<!no )\bclear difference\b", re.I)
 SAME = re.compile(r"\b(?:about the same|flat|steady|stable|similar|tightly|barely (?:change|move)s?)\b", re.I)
-SAMPLE_WORDS = re.compile(r"too (?:small|few)|sample|per weekday|can'?t tell|cannot tell", re.I)
+SAMPLE_WORDS = re.compile(r"too (?:small|few)|(?:can'?t|cannot|unable to) tell|not enough", re.I)
 SPREAD_NUMBER = re.compile(r"(\$)?(\d+(?:\.\d+)?)(%)?")
 
 
@@ -789,7 +798,9 @@ def evidence_for_writer(run: Research) -> str:
 
 
 async def write_and_check(run: Research, brief: str) -> str:
-    prompt = (f"Question: {run.question}\n\nLead's brief:\n{brief}\n\n# Findings\n\n" + "\n\n".join(run.findings)
+    earlier = ("Earlier questions in this conversation (you can't see those reports; don't repeat or cite them): "
+               + " | ".join(run.earlier_questions) + "\n\n") if run.earlier_questions else ""
+    prompt = (f"{earlier}Question: {run.question}\n\nLead's brief:\n{brief}\n\n# Findings\n\n" + "\n\n".join(run.findings)
               + "\n\n# Evidence records\n\n" + evidence_for_writer(run))
     result = await Runner.run(writer, prompt, context=run, hooks=run.hooks, max_turns=2)
     report = str(result.final_output)
@@ -833,12 +844,14 @@ def sources_section(report: str, run: Research) -> str:
 # --- One research run ---
 
 
-async def deep_research(question: str, hooks: Hooks) -> Research:
-    run = Research(hooks=hooks, question=question)
+async def deep_research(question: str, hooks: Hooks, history: list[dict] | None = None) -> Research:
+    history = history or []
+    run = Research(hooks=hooks, question=question, earlier_questions=[t["question"] for t in history])
     hooks.run = run
     final, timed_out = "", False
     try:
-        result = await asyncio.wait_for(Runner.run(lead, question, context=run, hooks=hooks, max_turns=14), RUN_TIMEOUT)
+        result = await asyncio.wait_for(Runner.run(lead, lead_input(question, history), context=run, hooks=hooks,
+                                                   max_turns=14), RUN_TIMEOUT)
         final = str(result.final_output)
     except asyncio.TimeoutError:
         timed_out = True
@@ -867,11 +880,32 @@ def response_text(run: Research) -> str:
     return o["markdown"]
 
 
-def compose_question(message: str, pending: str | None) -> str:
-    """A reply to a clarifying question carries the original question with it."""
-    if pending:
-        return f"{pending}\n\nClarification from the user: {message}"
-    return message
+CONTEXT_TURNS = 4  # earlier exchanges the Lead sees with each new question
+REPLY_CHARS = 6000  # an earlier reply is cut to this many characters
+
+
+def remembered_reply(markdown: str) -> str:
+    """An earlier reply as the Lead sees it: no Sources list or citation check, and no evidence IDs (they
+    belonged to that run's evidence, not this one's)."""
+    text = markdown.split("\n\n## Sources")[0].split("\n\n> **Citation check:**")[0]
+    text = re.sub(r"\s?\[E\d+(?:\s*,\s*E\d+)*\]", "", text).strip()
+    return text if len(text) <= REPLY_CHARS else text[:REPLY_CHARS].rsplit("\n", 1)[0] + "\n[...cut]"
+
+
+def remember(session: dict, question: str, kind: str, reply: str) -> None:
+    session["turns"].append({"question": question, "kind": kind, "reply": remembered_reply(reply)})
+    del session["turns"][:-CONTEXT_TURNS]
+
+
+def lead_input(question: str, history: list[dict]) -> str:
+    """What the Lead receives: the earlier exchanges in this session, then the new question."""
+    if not history:
+        return question
+    said = {"report": "Report", "clarify": "You asked", "answer": "You answered"}
+    parts = [f"## Earlier turn {i}\nUser: {t['question']}\n\n{said.get(t['kind'], 'Reply')}:\n{t['reply']}"
+             for i, t in enumerate(history, 1)]
+    return ("# Conversation so far (earlier turns in this session)\n\n" + "\n\n".join(parts)
+            + f"\n\n# New question\n\n{question}")
 
 
 # --- FastAPI ---
@@ -880,7 +914,7 @@ HERE = Path(__file__).parent
 app = FastAPI(title="Food Week")
 panels: dict[str, AgentContexts] = {}  # run_id -> every agent's context, for the context panel
 add_context_panel(app, panels)
-sessions: dict[str, dict] = {}  # session_id -> {"pending": original question awaiting clarification}
+sessions: dict[str, dict] = {}  # session_id -> {"turns": [the last few questions and replies]}
 MAX_SESSIONS = 500
 
 
@@ -900,7 +934,7 @@ def _session(session_id: str | None) -> tuple[str, dict]:
     if sid not in sessions:
         if len(sessions) >= MAX_SESSIONS:
             sessions.pop(next(iter(sessions)))
-        sessions[sid] = {"pending": None}
+        sessions[sid] = {"turns": []}
     return sid, sessions[sid]
 
 
@@ -919,13 +953,13 @@ def health():
 async def chat(request: ChatRequest):
     """Project 1's shape. Runs the whole research and returns the report (or a clarifying question)."""
     sid, session = _session(request.session_id)
-    question = compose_question(request.message.strip()[:2000], session["pending"])
+    question = request.message.strip()[:2000]
     run_id = str(uuid.uuid4())
     panels[run_id] = AgentContexts()
     hooks = Hooks(panels[run_id], lambda _event: None)  # /chat doesn't stream
     try:
-        run = await deep_research(question, hooks)
-        session["pending"] = question if outcome(run)["type"] == "clarify" else None
+        run = await deep_research(question, hooks, list(session["turns"]))
+        remember(session, question, outcome(run)["type"], response_text(run))
         return ChatResponse(response=response_text(run), session_id=sid, tool_calls=run.tool_calls)
     except Exception as e:
         first = str(e).strip().splitlines()[0] if str(e).strip() else ""
@@ -933,6 +967,14 @@ async def chat(request: ChatRequest):
         return ChatResponse(response=f"Research failed: {type(e).__name__}: {first[:300]}", session_id=sid, tool_calls=calls)
     finally:
         panels.pop(run_id, None)
+
+
+@app.get("/history")
+def history(session_id: str | None = None):
+    """The earlier turns the Lead will see with this session's next question. Empty when the session is
+    new or the server restarted (sessions live in memory)."""
+    session = sessions.get(session_id or "")
+    return {"turns": session["turns"] if session else []}
 
 
 @app.post("/clear")
@@ -946,7 +988,7 @@ def clear(session_id: str | None = None):
 async def run_stream(question: str, session_id: str | None = None):
     """The same research as /chat, streamed as Server-Sent Events for the web page."""
     sid, session = _session(session_id)
-    full_question = compose_question(question.strip()[:2000], session["pending"])
+    question = question.strip()[:2000]
     run_id = str(uuid.uuid4())
     panels[run_id] = AgentContexts()
     if len(panels) > 50:
@@ -956,11 +998,12 @@ async def run_stream(question: str, session_id: str | None = None):
 
     async def work():
         try:
-            run = await deep_research(full_question, hooks)
+            run = await deep_research(question, hooks, list(session["turns"]))
             result = outcome(run)
-            session["pending"] = full_question if result["type"] == "clarify" else None
+            remember(session, question, result["type"], response_text(run))
             queue.put_nowait({"type": "done", "kind": result["type"], "markdown": response_text(run),
                               "suggestions": result.get("suggestions", []), "session_id": sid,
+                              "history": session["turns"],
                               "tool_calls": run.tool_calls, "rounds": run.rounds, "researchers": run.researchers})
         except Exception as e:
             queue.put_nowait({"type": "error", "message": f"{type(e).__name__}: {str(e)[:500]}"})
@@ -969,7 +1012,7 @@ async def run_stream(question: str, session_id: str | None = None):
 
     async def events():
         try:
-            yield f"data: {json.dumps({'type': 'start', 'run_id': run_id, 'session_id': sid})}\n\n"
+            yield f"data: {json.dumps({'type': 'start', 'run_id': run_id, 'session_id': sid, 'history': session['turns']})}\n\n"
             while True:
                 event = await queue.get()
                 yield f"data: {json.dumps(event, default=str)}\n\n"

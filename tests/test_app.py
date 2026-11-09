@@ -147,7 +147,7 @@ def test_researcher_and_per_round_caps():
 
 
 def test_chat_shape_and_agent_field():
-    async def fake_research(question, hooks):
+    async def fake_research(question, hooks, history=None):
         run = app_module.Research(hooks=hooks, question=question)
         hooks.run = run
         run.tool_calls = [{"agent": "Researcher 1", "name": "ce_diary_spending", "args": {"measure": "eating_out"}, "result": "..."}]
@@ -164,8 +164,8 @@ def test_chat_shape_and_agent_field():
 def test_clarification_carries_the_original_question():
     seen = []
 
-    async def fake_research(question, hooks):
-        seen.append(question)
+    async def fake_research(question, hooks, history=None):
+        seen.append(app_module.lead_input(question, history or []))
         run = app_module.Research(hooks=hooks, question=question)
         hooks.run = run
         run.outcome = ({"type": "clarify", "question": "Groceries or eating out?", "suggestions": ["a", "b"]}
@@ -177,7 +177,8 @@ def test_clarification_carries_the_original_question():
         first = client.post("/chat", json={"message": "food on fridays?"}).json()
         client.post("/chat", json={"message": "eating out", "session_id": first["session_id"]})
     assert "Groceries or eating out?" in first["response"]
-    assert seen[1].startswith("food on fridays?") and "Clarification from the user: eating out" in seen[1]
+    assert "User: food on fridays?" in seen[1] and "You asked:\nGroceries or eating out?" in seen[1]
+    assert seen[1].endswith("# New question\n\neating out")
 
 
 def test_index_explains_the_tool():
@@ -218,6 +219,8 @@ def test_about_the_same_with_a_visible_gap_needs_the_sample_size_reason():
     assert not any("about the same" in p for p in app_module.check_wording(close))
     assert any("clear difference" in p for p in app_module.check_wording(label))
     assert not app_module.check_wording("## X\nThe days show no clear difference [E1].\n")
+    vague = "## NY\nSpending is flat, $16.76 to $18.86, consistent with smaller sample sizes [E20].\n"
+    assert any("visible gap" in p for p in app_module.check_wording(vague))
 
 
 def test_flat_with_a_five_percent_gap_is_flagged():
@@ -225,3 +228,25 @@ def test_flat_with_a_five_percent_gap_is_flagged():
     assert any("visible gap" in p for p in app_module.check_wording(flat))
     near = "## Lunch\nShares are about the same, 18.10% to 19.10% [E22].\n"  # 5.5% apart
     assert any("visible gap" in p for p in app_module.check_wording(near))
+
+
+def test_follow_ups_carry_the_conversation():
+    seen = []
+
+    async def fake_research(question, hooks, history=None):
+        seen.append(app_module.lead_input(question, history or []))
+        run = app_module.Research(hooks=hooks, question=question)
+        hooks.run = run
+        run.outcome = {"type": "report", "markdown": "Friday is highest at $9.73 [E3].\n\n## Sources\n- [E3] CE"}
+        return run
+
+    with patch.object(app_module, "deep_research", side_effect=fake_research):
+        client = TestClient(app_module.app)
+        sid = client.post("/chat", json={"message": "which weekday for eating out?"}).json()["session_id"]
+        assert client.get("/history", params={"session_id": sid}).json()["turns"][0]["question"] == "which weekday for eating out?"
+        client.post("/chat", json={"message": "what about lunch?", "session_id": sid})
+    assert seen[0] == "which weekday for eating out?"  # nothing earlier: just the question
+    assert "which weekday for eating out?" in seen[1] and "Friday is highest at $9.73." in seen[1]
+    assert "[E3]" not in seen[1] and "## Sources" not in seen[1]
+    assert seen[1].endswith("# New question\n\nwhat about lunch?")
+    assert client.get("/history", params={"session_id": "nope"}).json()["turns"] == []
