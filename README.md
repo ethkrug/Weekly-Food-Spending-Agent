@@ -4,7 +4,7 @@
 
 **Who it's for:** café and restaurant owners planning staff and promotions by weekday, reporters covering hybrid work, and anyone curious about everyday spending habits.
 
-**How to use it:** open the page, type a question about Monday–Friday food spending or eating (or click an example), and press Research. A run takes 1–3 minutes. The activity list and the context panel on the right show each agent working. Vague questions get a short follow-up question with suggested rewrites. Follow-ups build on the conversation: the question box shows the earlier turns the model will see with your next question (or says it has no earlier context), and **Start over** clears them.
+**How to use it:** open the page, type a question about Monday–Friday food spending or eating (or click an example), and press Research. A run takes 1–3 minutes. The activity list and the context panel on the right show each agent working. Vague questions get a short follow-up question with suggested rewrites. Follow-ups build on the conversation: once there is an earlier turn, the question box shows the turns the model will see with your next question, and **Start over** clears them.
 
 Example questions:
 - Which weekday do Americans spend the most on eating out, and why?
@@ -165,7 +165,7 @@ uvicorn app:app --host 0.0.0.0 --port $PORT
 
 Settings: 2 GiB memory, 600 s request timeout, max 1 instance, unauthenticated access. Every push to `main` redeploys.
 - **Conversation memory:** like SafeSwap, each session's history lives in server memory. The Lead gets the last 4 turns (question + reply, without the Sources list or old evidence IDs, each cut to 6,000 characters) before the new question, and starts its brief with a standalone version of the question. The Writer only sees the earlier questions, so it can't cite numbers from an earlier report. A reply to a clarifying question is just the next turn.
-- **One instance:** sessions and the context panel live in memory, so they reset when Cloud Run starts a new instance (the page then says it has no earlier context).
+- **One instance:** sessions and the context panel live in memory, so they reset when Cloud Run starts a new instance (the conversation section then disappears).
 - **600 s:** the Lead gets 480 s. If it runs out, the Writer gets up to 90 s to report from the evidence gathered so far.
 - **No environment variables needed:** Vertex AI uses the service's own project credentials. `.env.example` lists the optional ones.
 
