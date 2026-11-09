@@ -47,22 +47,30 @@ MODEL_NAME = os.environ.get("MODEL", "vertex_ai/gemini-3.5-flash")
 RESEARCHER_MODEL_NAME = os.environ.get("RESEARCHER_MODEL", "vertex_ai/gemini-3.5-flash-lite")
 MODEL = LitellmModel(model=MODEL_NAME, api_key="unused")
 RESEARCHER_MODEL = LitellmModel(model=RESEARCHER_MODEL_NAME, api_key="unused")
-_vertex = {"vertex_location": os.environ.get("VERTEX_LOCATION", "global"), "timeout": 90, "num_retries": 2}
+_vertex = {"vertex_location": os.environ.get("VERTEX_LOCATION", "global"), "timeout": 90, "num_retries": 5}
+# On a 429 (Vertex's shared quota, hit when several Researchers run at once) LiteLLM backs off
+# exponentially (1, 2, 4, 8 s). With 2 retries it gave up after ~1 s and the error ended the run.
+# LiteLLM also retries a call that times out, from scratch. The Writer thinks for 35-90+ s, so a
+# 90 s timeout made a slow draft start over (225 s in one run). Its calls get no timeout of their
+# own; the run's deadline (RUN_BUDGET, below) stops them instead.
 if os.environ.get("GOOGLE_CLOUD_PROJECT"):
     _vertex["vertex_project"] = os.environ["GOOGLE_CLOUD_PROJECT"]
 SETTINGS = ModelSettings(extra_args=_vertex)
+WRITER_SETTINGS = ModelSettings(extra_args={**_vertex, "timeout": 600})
 LEAD_SETTINGS = ModelSettings(extra_args=_vertex, parallel_tool_calls=True)
 
 # --- Budget. Prompts ask for restraint; code enforces it. ---
-MAX_ROUNDS = 3  # rounds of research: the first, then at most 2 follow-ups after the Lead reads findings
+MAX_ROUNDS = 2  # rounds of research: the first, then at most 1 follow-up after the Lead reads findings
 MAX_RESEARCHERS = 8  # in all, across rounds
 MAX_PER_ROUND = 5
 MAX_DATA_CALLS = 6  # per Researcher
 MAX_MTA_CALLS = 6  # per run: the only tool that reaches the internet
-# Cloud Run cuts a request at 600 s. The Lead gets 480 s; if it runs out, the Writer gets up to 90 s
-# to report from whatever evidence exists, so the user still gets an answer inside the limit.
-RUN_TIMEOUT = 480
-WRITER_TIMEOUT = 90
+# Time. Graders wait at most 5 minutes for an answer, so a whole run gets 270 s (the rest covers the
+# network and a Cloud Run cold start). Research typically takes ~80 s and the Writer 60-120 s (it thinks
+# for ~20k tokens), but both vary, so research is cut at 150 s and the Writer gets whatever is left.
+RUN_BUDGET = 270  # research + Writer
+RESEARCH_TIMEOUT = 150  # the Lead and its Researchers; the Writer then has at least 120 s
+REWRITE_MIN = 45  # the citation-fix rewrite only starts with at least this long left; else the draft stands
 
 
 @dataclass
@@ -82,6 +90,7 @@ class Research:
     findings: list[str] = field(default_factory=list)
     evidence: dict[str, dict] = field(default_factory=dict)  # "E3" -> {source, params, text, agent}
     tool_calls: list[dict] = field(default_factory=list)  # every call by every agent, for /chat
+    brief: str | None = None  # set by write_report
     outcome: dict | None = None  # {"type": "report"|"clarify", ...} once the Lead ends the run
 
 
@@ -464,7 +473,7 @@ Style: plain, specific sentences; 500-900 words. Translate the tools' labels int
 "the New York metro area", not "ny_metro"). No filler ("it is worth noting", "pivotal", "delve",
 "in conclusion", "landscape").""",
     model=MODEL,
-    model_settings=SETTINGS,
+    model_settings=WRITER_SETTINGS,
 )
 
 
@@ -555,9 +564,8 @@ async def write_report(ctx: RunContextWrapper[Research], brief: str) -> str:
     run = ctx.context
     if not run.findings:
         return "There are no findings yet: call research first."
-    report = await write_and_check(run, brief)
-    run.outcome = {"type": "report", "markdown": report}
-    return "Report written."
+    run.brief = brief  # deep_research runs the Writer once the Lead stops, with the time that's left
+    return "Handed to the Writer."
 
 
 lead = Agent(
@@ -609,8 +617,8 @@ parallel), ask_user, write_report (hands everything to the Writer and ends the r
    compare with each other.
 4. Read the findings and decide. If part of the question has no evidence, sources disagree, or a finding
    begs an obvious follow-up (e.g. "does the Friday spike hold for retirees?"), start another round
-   aimed at just that gap. You have at most {MAX_ROUNDS} rounds in all (the first plus {MAX_ROUNDS - 1}
-   follow-ups) and {MAX_RESEARCHERS} researchers; research tells you what's left. Stop early when the
+   aimed at just that gap. You have at most {MAX_ROUNDS} rounds in all (the first plus at most
+   {MAX_ROUNDS - 1} more) and {MAX_RESEARCHERS} researchers; research tells you what's left. Stop early when the
    evidence already answers the question -- more rounds are not better.
 5. Call write_report with a brief: the main answer, the strongest evidence (especially where several
    surveys agree), conflicts to explain, and what the data can't answer. Then stop.""",
@@ -774,25 +782,33 @@ def evidence_for_writer(run: Research) -> str:
     return "\n\n".join(blocks)
 
 
-async def write_and_check(run: Research, brief: str) -> str:
+async def write_and_check(run: Research, brief: str, deadline: float) -> str:
+    """Draft, check, and rewrite once if there are problems and time allows. `deadline` is loop time."""
+    loop = asyncio.get_running_loop()
     earlier = ("Earlier questions in this conversation (you can't see those reports; don't repeat or cite them): "
                + " | ".join(run.earlier_questions) + "\n\n") if run.earlier_questions else ""
     prompt = (f"{earlier}Question: {run.question}\n\nLead's brief:\n{brief}\n\n# Findings\n\n" + "\n\n".join(run.findings)
               + "\n\n# Evidence records\n\n" + evidence_for_writer(run))
-    result = await Runner.run(writer, prompt, context=run, hooks=run.hooks, max_turns=2)
+    result = await asyncio.wait_for(Runner.run(writer, prompt, context=run, hooks=run.hooks, max_turns=2),
+                                    max(deadline - loop.time(), 1))
     report = str(result.final_output)
     problems = check_citations(report, run.evidence) + check_extremes(report, run.evidence)
     wording = check_wording(report)
+    rewrite = bool(problems or wording) and deadline - loop.time() >= REWRITE_MIN
     run.hooks.activity("Writer", f"checked citations and wording: {len(problems) + len(wording)} problem(s)"
-                       + (", rewriting" if problems or wording else ""))
-    if problems or wording:  # one rewrite, with the exact problems
+                       + (", rewriting" if rewrite else ", no time to rewrite" if problems or wording else ""))
+    if rewrite:  # one rewrite, with the exact problems; if it fails or runs out of time, the draft stands
         fix = ("Your report has problems. Fix each one. For a number: cite the evidence that contains it, copy it "
                "exactly, or remove it. For wording: rephrase without claiming cause. Return the full corrected "
                "report.\n- " + "\n- ".join((problems + wording)[:20]))
-        result = await Runner.run(writer, result.to_input_list() + [{"role": "user", "content": fix}],
-                                  context=run, hooks=run.hooks, max_turns=2)
-        report = str(result.final_output)
-        problems = check_citations(report, run.evidence) + check_extremes(report, run.evidence)
+        try:
+            result = await asyncio.wait_for(
+                Runner.run(writer, result.to_input_list() + [{"role": "user", "content": fix}],
+                           context=run, hooks=run.hooks, max_turns=2), max(deadline - loop.time(), 1))
+            report = str(result.final_output)
+            problems = check_citations(report, run.evidence) + check_extremes(report, run.evidence)
+        except Exception as e:  # includes the timeout
+            run.hooks.activity("Writer", f"rewrite stopped ({type(e).__name__}); keeping the first draft")
     report = drop_untested_rows(report)
     return report + sources_section(report, run) + (
         "\n\n> **Citation check:** " + str(len(problems)) + " number(s) couldn't be matched to the cited evidence: "
@@ -825,19 +841,30 @@ async def deep_research(question: str, hooks: Hooks, history: list[dict] | None 
     history = history or []
     run = Research(hooks=hooks, question=question, earlier_questions=[t["question"] for t in history])
     hooks.run = run
-    final, timed_out = "", False
+    deadline = asyncio.get_running_loop().time() + RUN_BUDGET
+    final, timed_out, error = "", False, None
     try:
         result = await asyncio.wait_for(Runner.run(lead, lead_input(question, history), context=run, hooks=hooks,
-                                                   max_turns=14), RUN_TIMEOUT)
+                                                   max_turns=14), RESEARCH_TIMEOUT)
         final = str(result.final_output)
     except asyncio.TimeoutError:
         timed_out = True
+    except Exception as e:  # e.g. a 429 that outlasted the retries: keep the evidence gathered so far
+        error = e
     if run.outcome is None:
-        if run.findings:  # the Lead stopped (or ran out of time) without handing off: write from what there is
-            note = ("Research ran out of time. Answer from the findings so far and say the research was cut short."
-                    if timed_out else "The lead stopped without a brief. Answer from the findings.")
-            report = await asyncio.wait_for(write_and_check(run, note), WRITER_TIMEOUT)
-            run.outcome = {"type": "report", "markdown": report}
+        if run.findings:  # the Lead handed off, or stopped, failed or ran out of time: write from what there is
+            brief = run.brief or (
+                "Research ran out of time. Answer from the findings so far and say the research was cut short."
+                if timed_out or error else "The lead stopped without a brief. Answer from the findings.")
+            try:
+                run.outcome = {"type": "report", "markdown": await write_and_check(run, brief, deadline)}
+            except asyncio.TimeoutError:
+                run.outcome = {"type": "answer", "markdown": "The report took longer than the 5-minute limit to "
+                               "write. Please ask again; a run usually takes 2-4 minutes."}
+            except Exception as e:
+                raise error or e
+        elif error:
+            raise error
         elif timed_out:
             run.outcome = {"type": "answer", "markdown": "The research ran out of time before finding anything. Try a narrower question."}
         else:  # off-topic, or a direct answer

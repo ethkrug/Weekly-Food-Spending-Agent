@@ -131,10 +131,49 @@ def test_parallel_calls_in_one_turn_are_one_round():
     assert _admit_round(run, 3) == 3 and run.rounds == 1
 
 
-def test_at_most_three_rounds():
+def test_round_limit():
     run = app_module.Research(hooks=None, question="q")
-    assert [_admit_round(run, 2) for _ in range(4)] == [2, 2, 2, 0]
-    assert run.rounds == 3
+    n = app_module.MAX_ROUNDS
+    assert [_admit_round(run, 2) for _ in range(n + 1)] == [2] * n + [0]
+    assert run.rounds == n
+
+
+# --- The Writer works to the run's deadline (graders wait at most 5 minutes) ---
+
+
+def _writer_run(rewrite_delay: float, time_left: float, rewrite_min: float):
+    """A draft citing missing evidence (so it needs a rewrite) and a rewrite that takes rewrite_delay s."""
+    run = app_module.Research(hooks=SimpleNamespace(activity=lambda *a: None), question="q")
+    calls = []
+
+    async def fake_run(agent, input, **kwargs):
+        calls.append(input)
+        if len(calls) > 1:
+            await asyncio.sleep(rewrite_delay)
+            return SimpleNamespace(final_output="Rewritten.", to_input_list=list)
+        return SimpleNamespace(final_output="Fridays run $9.00 [E9].", to_input_list=list)
+
+    async def go():
+        return await app_module.write_and_check(run, "brief", asyncio.get_running_loop().time() + time_left)
+
+    with patch.object(app_module.Runner, "run", side_effect=fake_run), \
+            patch.object(app_module, "REWRITE_MIN", rewrite_min):
+        return asyncio.run(go()), len(calls)
+
+
+def test_writer_skips_rewrite_without_time():
+    report, calls = _writer_run(rewrite_delay=0, time_left=1, rewrite_min=45)
+    assert calls == 1 and report.startswith("Fridays run $9.00") and "Citation check" in report
+
+
+def test_writer_keeps_draft_when_rewrite_runs_out_of_time():
+    report, calls = _writer_run(rewrite_delay=5, time_left=0.3, rewrite_min=0.1)
+    assert calls == 2 and report.startswith("Fridays run $9.00") and "Citation check" in report
+
+
+def test_writer_uses_rewrite_in_time():
+    report, calls = _writer_run(rewrite_delay=0, time_left=5, rewrite_min=0.1)
+    assert calls == 2 and report.startswith("Rewritten.")
 
 
 def test_researcher_and_per_round_caps():
