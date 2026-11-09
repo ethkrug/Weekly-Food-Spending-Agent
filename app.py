@@ -105,8 +105,10 @@ class Hooks(PanelHooks):
         except ValueError:
             args = {}
         text = str(result)
-        self.run.tool_calls.append({"agent": agent.name, "name": tool.name, "args": args,
-                                    "result": text if len(text) <= 6000 else text[:6000] + "\n[truncated]"})
+        call = {"agent": agent.name, "name": tool.name, "args": args,
+                "result": text if len(text) <= 6000 else text[:6000] + "\n[truncated]"}
+        self.run.tool_calls.append(call)
+        self.emit({"type": "tool", **call})
 
 
 def _agent_name(ctx) -> str:
@@ -340,6 +342,13 @@ You get the question, the lead researcher's brief, the researchers' findings, an
 records. Each record has an ID (E1, E2, ...), its source, its parameters and the exact table the
 numbers came from. Use ONLY these. Never add facts from memory.
 
+Friday is expected. Readers already know Friday is Americans' biggest weekday for eating out and food
+spending, so it is no surprise. Unless the question is about Friday itself, state the Friday peak
+briefly and say why it happens in "What explains it?", then spend most of the report on Monday through
+Thursday: how those four days rank and compare with each other, which gaps are clear and which are
+about the same, and how groceries vs eating out, different groups and different places vary across
+them (a Monday grocery restock, a Tuesday low, a rise into Thursday). That is the less obvious part.
+
 Write markdown with these sections:
 1. "## The short answer": one paragraph that answers the question directly with the 2-3 numbers that
    matter most.
@@ -444,6 +453,7 @@ async def research(
     # What researcher.as_tool() does, written out: a fresh context per researcher, a numbered copy
     # with its own column in the context panel, and only the tools for its assigned datasets.
     agent = researcher.clone(name=f"Researcher {number}", tools=[describe_source] + [SOURCE_TOOLS[s] for s in assigned])
+    run.hooks.emit({"type": "researcher", "agent": agent.name, "round": this_round, "task": task, "sources": assigned})
     prompt = f"Task: {task}\nDatasets assigned: {', '.join(assigned)}\nOverall question (for context): {run.question}"
     try:
         result = await Runner.run(agent, prompt, context=run, hooks=run.hooks, max_turns=10)
@@ -511,7 +521,8 @@ parallel), ask_user, write_report (hands everything to the Writer and ends the r
    eating behavior (nhanes), activities and work location (atus), the NYC office week (mta, reference),
    New York spending (ce_diary with ny_metro). Where the question asks why, set tasks that test the
    candidate explanations: office days vs home days (hybrid work), an end-of-week habit that shows up
-   even for people who don't work, payday timing, a Monday restock.
+   even for people who don't work, payday timing, a Monday restock. Friday being the top weekday is
+   expected, so also ask Researchers how Monday through Thursday compare with each other.
 4. Read the findings and decide. If part of the question has no evidence, sources disagree, or a finding
    begs an obvious follow-up (e.g. "does the Friday spike hold for retirees?"), start another round
    aimed at just that gap. You have at most {MAX_ROUNDS} rounds in all (the first plus {MAX_ROUNDS - 1}
@@ -612,6 +623,8 @@ async def write_and_check(run: Research, brief: str) -> str:
     report = str(result.final_output)
     problems = check_citations(report, run.evidence)
     wording = check_wording(report)
+    run.hooks.activity("Writer", f"checked citations and wording: {len(problems) + len(wording)} problem(s)"
+                       + (", rewriting" if problems or wording else ""))
     if problems or wording:  # one rewrite, with the exact problems
         fix = ("Your report has problems. Fix each one. For a number: cite the evidence that contains it, copy it "
                "exactly, or remove it. For wording: rephrase without claiming cause. Return the full corrected "
