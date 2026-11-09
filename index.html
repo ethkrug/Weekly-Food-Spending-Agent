@@ -49,7 +49,7 @@
             #convo.has #convo-status::before { background: var(--sand); border-color: var(--sand); }
             #convo-clear { background: none; border: 1px solid #5a4a3b; color: #e9dccb; border-radius: 999px; padding: 0.2rem 0.7rem; font-size: 0.75rem; }
             #convo-clear:hover { border-color: var(--sand); color: #fff; }
-            #convo:not(.has) { display: none; }  /* shown only once there is earlier context */
+            #convo:not(.has) { display: none; }  /* shown once there is a question: the current one or earlier turns */
             #convo-turns { list-style: none; margin: 0.8rem 0 0; padding: 0; display: grid; gap: 0.6rem; max-height: 22rem; overflow-y: auto; }
             #convo-turns:empty { display: none; }
             .turn { display: grid; gap: 0.35rem; }
@@ -456,9 +456,10 @@
                 }
                 list.scrollTop = list.scrollHeight;
                 const n = turns.length;
-                $("convo").classList.toggle("has", n > 0);
-                if (n) $("convo-status").textContent = now
-                    ? `The model is working with your question plus the ${n} earlier turn${n > 1 ? "s" : ""} above.`
+                $("convo").classList.toggle("has", n > 0 || !!now);
+                $("convo-status").textContent = now
+                    ? (n ? `The model is working with your question plus the ${n} earlier turn${n > 1 ? "s" : ""} above.`
+                         : "The model is working on your question. Follow-ups will build on this conversation.")
                     : `The model will see ${n === 1 ? "this earlier turn" : `these ${n} earlier turns`} with your next question.`;
             }
 
@@ -492,6 +493,7 @@
                 if (sessionId) params.set("session_id", sessionId);
 
                 $("question").value = "";
+                renderConvo(convoTurns, question);  // show the question right away, before the server answers
                 $("clarify").style.display = "none";
                 $("results").classList.add("on");
                 $("agents").replaceChildren();
