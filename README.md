@@ -4,7 +4,7 @@
 
 **Who it's for:** café and restaurant owners planning staff and promotions by weekday, reporters covering hybrid work, and anyone curious about everyday spending.
 
-**How to use it:** type a question about Monday–Friday food spending (or click an example) and press Research. A run takes about 2–4 minutes and always answers within 5. The activity list and the context panel show each agent working. Vague questions get a follow-up question with suggested rewrites. Follow-ups build on the conversation: once there's an earlier turn, the question box shows what the model will see, and **Start over** clears it.
+**How to use it:** type a question about Monday–Friday food spending (or click an example) and press Research. A run takes about 2–4 minutes and always answers within 5. The activity list and the context panel show each agent working. Vague questions get a follow-up question with suggested rewrites. Follow-ups build on the conversation: once there's an earlier turn, the question box shows what the model will see, and **Start over** clears it. **Print or Download PDF** above a report opens the browser's print dialog with only the report and its question ("Save as PDF" makes the file).
 
 Example questions:
 - Which weekday do Americans spend the most on eating out, and why?

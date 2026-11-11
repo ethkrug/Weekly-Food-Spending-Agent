@@ -138,6 +138,11 @@
             #report li:target { background: #fff4d6; border-radius: 6px; }
             #report .sources li { font-size: 0.8rem; list-style: none; margin-left: -1.3rem; padding: 0.2rem 0.3rem; color: var(--muted); word-break: break-word; }
             #report .error { color: var(--tomato); }
+            .report-tools { display: flex; justify-content: flex-end; margin: -0.6rem 0 0.8rem; }
+            .report-tools[hidden] { display: none; }
+            #print { background: none; border: 1px solid var(--line); border-radius: 999px; padding: 0.3rem 0.9rem; font-size: 0.8rem; color: var(--muted); }
+            #print:hover { border-color: var(--sand); color: var(--ink); }
+            #print-head { display: none; }
 
             /* ---- context panel (context-panel.js) as a drawer ---- */
             body { margin-right: 0 !important; }
@@ -154,6 +159,24 @@
                 #run { padding: 0.8rem; }
                 .report { padding: 1.3rem 1.1rem; }
                 #context-panel { position: fixed !important; width: 100% !important; height: 100vh !important; }
+            }
+
+            /* ---- Print or Download PDF: only the report, with the question on top ---- */
+            @media print {
+                @page { margin: 16mm; }
+                body { background: #fff; }
+                body > *:not(main), main > *:not(#results), #results > aside, .report-tools { display: none !important; }
+                main { max-width: none; padding: 0; }
+                #results.on { display: block; margin: 0; }
+                .report { border: 0; border-radius: 0; padding: 0; min-height: 0; }
+                #print-head { display: block; margin-bottom: 1.4rem; padding-bottom: 0.8rem; border-bottom: 2px solid var(--line); }
+                #print-head .eyebrow { margin-bottom: 0.3rem; }
+                #print-head h1 { font-size: 1.6rem; line-height: 1.2; }
+                #print-head p { font-size: 0.8rem; color: var(--muted); margin-top: 0.3rem; }
+                #report .scroll { overflow: visible; }
+                #report h2, #report h3 { break-after: avoid; }
+                #report tr, #report blockquote, .bars { break-inside: avoid; }
+                .cite, .v, .bars i, #report li:target { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
             }
         </style>
     </head>
@@ -216,7 +239,11 @@
                     <div id="agents"></div>
                     <button id="ctx-open" type="button">See exactly what each agent saw →</button>
                 </aside>
-                <article class="report"><div id="report"></div></article>
+                <article class="report">
+                    <div class="report-tools" id="report-tools" hidden><button id="print" type="button">Print or Download PDF</button></div>
+                    <header id="print-head"><p class="eyebrow">Food Week</p><h1 id="print-question"></h1><p id="print-meta"></p></header>
+                    <div id="report"></div>
+                </article>
             </div>
         </main>
         <button id="ctx-close" type="button">Close ✕</button>
@@ -330,6 +357,7 @@
                 const box = el("div", "waiting");
                 box.append($("weekstrip").content.cloneNode(true), el("p", "", text));
                 $("report").replaceChildren(box);
+                $("report-tools").hidden = true;
             }
 
             function renderReport(markdown) {
@@ -478,6 +506,20 @@
                 }).catch(() => {});
             }
 
+            // ---------- Print or Download PDF: the browser's print dialog, whose "Save as PDF" makes the file ----------
+            function showPrint(question) {
+                $("print-question").textContent = question;
+                $("print-meta").textContent = "Researched " + new Date().toLocaleDateString(undefined, { year: "numeric", month: "long", day: "numeric" })
+                    + " · " + location.host;
+                $("report-tools").hidden = false;
+            }
+            $("print").onclick = () => {
+                const title = document.title;  // the browser names the PDF after the page title
+                document.title = "Food Week - " + $("print-question").textContent.slice(0, 80);
+                window.addEventListener("afterprint", () => { document.title = title; }, { once: true });
+                window.print();
+            };
+
             // ---------- context drawer ----------
             $("ctx-open").onclick = () => document.body.classList.add("ctx-open");
             $("ctx-close").onclick = () => document.body.classList.remove("ctx-open");
@@ -533,6 +575,7 @@
                         } else {
                             awaitingClarification = false;
                             renderReport(event.markdown);
+                            if (event.kind === "report") showPrint(question);
                             const r = event.rounds ? ` · ${event.rounds} round${event.rounds > 1 ? "s" : ""}` : "";
                             finish(`done · ${secs} s${r}`, "done");
                         }
